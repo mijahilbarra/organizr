@@ -14,7 +14,10 @@
     "lint": "tsc --noEmit",
     "duplicates": "jscpd src server functions --min-lines 6 --min-tokens 40 --reporters console --ignore \"**/node_modules/**,**/lib/**,**/dist/**\"",
     "functions:build": "npm --prefix functions run build",
-    "firebase:build": "npm run build && npm run functions:build"
+    "firebase:build": "npm run build && npm run functions:build",
+    "tickets:read": "tsx scripts/read-tickets.ts",
+    "tickets:create": "tsx scripts/create-ticket.ts",
+    "tickets:update-state": "tsx scripts/update-ticket-state.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

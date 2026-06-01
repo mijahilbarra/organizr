@@ -175,3 +175,36 @@ sequenceDiagram
   Function-->>Frontend: Devuelve estado de envio
   Frontend-->>User: Muestra resultado del envio
 ```
+
+
+## Historia 8: Gestionar Tickets En Kanban
+
+```mermaid
+sequenceDiagram
+  autonumber
+  actor User as Usuario
+  actor Codex as Codex CLI
+  participant Frontend as Frontend React
+  participant FirebaseAuth as Firebase Auth
+  participant Firestore as Firestore
+  participant AdminScript as Scripts Firebase Admin
+
+  User->>Frontend: Abre Tickets desde el footer
+  Frontend->>FirebaseAuth: Usa cuenta actual autenticada
+  Frontend->>Firestore: onSnapshot(tickets)
+  Firestore-->>Frontend: Devuelve tickets y cambios en vivo
+  Frontend-->>User: Muestra kanban Backlog, To do, Doing, On review y Done
+
+  User->>Frontend: Crea, edita, borra o arrastra un ticket
+  Frontend->>Firestore: Escribe tickets/{ticketId} con usuario, urgencia y state
+  Firestore-->>Frontend: Notifica snapshot actualizado
+  Frontend-->>User: Refresca columnas del kanban
+
+  Codex->>AdminScript: npm run tickets:read -- --state todo
+  AdminScript->>Firestore: Lee coleccion tickets con Firebase Admin
+  Firestore-->>AdminScript: Devuelve tickets filtrados por estado
+  AdminScript-->>Codex: Imprime tickets y estados
+  Codex->>AdminScript: npm run tickets:create o tickets:update-state
+  AdminScript->>Firestore: Crea ticket como codex o cambia state
+  Firestore-->>Frontend: Notifica snapshot actualizado
+```

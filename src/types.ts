@@ -59,3 +59,18 @@ export interface Extractor {
   webhookUrl?: string;
   extractions: ExtractionRecord[];
 }
+
+export type TicketState = "backlog" | "todo" | "doing" | "onreview" | "done";
+
+export type TicketUrgency = 1 | 2 | 3 | 4 | 5;
+
+export interface Ticket {
+  id: string;
+  description: string;
+  urgency: TicketUrgency;
+  state: TicketState;
+  user: string;
+  userId: string;
+  createdAt: string;
+  updatedAt: string;
+}

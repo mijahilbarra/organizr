@@ -69,3 +69,29 @@ Durante cambios relacionados con Firebase:
 - Mantener separadas las decisiones de frontend, backend, autenticacion, persistencia y deploy.
 - Preferir Firestore para datos persistentes si reemplaza la base local actual.
 - Documentar cambios de flujo en `sequence-diagram.md` cuando Firebase entre en el recorrido.
+
+## Tickets Para Codex
+
+La coleccion de tickets vive en Firestore como `tickets`.
+
+Campos principales:
+
+- `description`: descripcion del ticket.
+- `urgency`: numero del 1 al 5.
+- `state`: `backlog`, `todo`, `doing`, `onreview` o `done`.
+- `user`: cuenta actual en la UI, o `codex` cuando se crea por script.
+
+Codex debe usar los scripts del proyecto con las credenciales Firebase Admin/service account ya configuradas:
+
+```bash
+npm run tickets:read
+npm run tickets:read -- --state todo
+npm run tickets:create -- --description "Descripcion del ticket" --urgency 3 --state backlog
+npm run tickets:update-state -- --id <ticketId> --state done
+```
+
+Cuando el usuario pida algo como "resuelve los tickets en to-do", primero leer `todo`. Si Codex recoge un ticket, debe cambiarlo inmediatamente a `doing` con `tickets:update-state`, implementar los cambios necesarios y verificar.
+
+Cuando Codex termine la implementacion de un ticket, debe moverlo a `onreview`, resumir lo hecho y pedir explicitamente al usuario que lo revise y lo coloque en `done` si esta conforme. Codex no debe mover tickets terminados a `done` por su cuenta.
+
+Cuando el usuario coloque un ticket en `done` o pida procesar tickets en `done`, Codex debe escanear los cambios locales con `git status --short` y `git diff`, revisar que el scope corresponda al ticket aprobado, correr las verificaciones relevantes, crear un commit descriptivo y subirlo al repo remoto. No mezclar en ese commit cambios no relacionados con el ticket.

@@ -1,0 +1,25 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isValidTicket(data) {
+      return data.description is string
+        && data.description.size() > 0
+        && data.urgency in [1, 2, 3, 4, 5]
+        && data.state in ["backlog", "todo", "doing", "onreview", "done"]
+        && data.user is string
+        && data.userId is string;
+    }
+
+    match /tickets/{ticketId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null
+        && isValidTicket(request.resource.data)
+        && request.resource.data.userId == request.auth.uid;
+      allow update: if request.auth != null
+        && isValidTicket(request.resource.data)
+        && request.resource.data.userId == resource.data.userId;
+      allow delete: if request.auth != null;
+    }
+  }
+}

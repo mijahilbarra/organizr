@@ -12,6 +12,12 @@
       "npm --prefix \"$RESOURCE_DIR\" run build"
     ]
   },
+  "firestore": [
+    {
+      "database": "default",
+      "rules": "firestore.rules"
+    }
+  ],
   "hosting": {
     "public": "dist",
     "ignore": [

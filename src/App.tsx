@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { Mail, Key, Sparkles, SlidersHorizontal, AlertCircle, RefreshCw, Cpu, LogOut, CheckCircle2 } from "lucide-react";
+import { Mail, Key, Sparkles, SlidersHorizontal, AlertCircle, RefreshCw, Cpu, LogOut, CheckCircle2, Bug } from "lucide-react";
 import { EmailMessage, AnalysisResponse, SchemaField, Extractor } from "./types";
 import { createBackendHeadersForSession } from "./firebase/createBackendHeadersForSession";
 import type { FirebaseAuthSession } from "./firebase/FirebaseAuthSession";
@@ -16,6 +16,7 @@ import { toggleStringSetValue } from "./features/search/toggleStringSetValue";
 import { SchemaSlide } from "./features/schema/SchemaSlide";
 import { ScriptSlide } from "./features/script/ScriptSlide";
 import { DashboardSlide } from "./features/dashboard/DashboardSlide";
+import { TicketsSlide } from "./features/tickets/TicketsSlide";
 
 export default function App() {
   // Global states
@@ -27,7 +28,7 @@ export default function App() {
   const [isLoggingIn, setIsLoggingIn] = useState(false);
 
   // Active Wizard flow navigation
-  const [currentSlide, setCurrentSlide] = useState<"auth" | "search" | "schema" | "script" | "dashboard">("auth");
+  const [currentSlide, setCurrentSlide] = useState<"auth" | "search" | "schema" | "script" | "dashboard" | "tickets">("auth");
 
   // Crawling States
   const [subjectInput, setSubjectInput] = useState("");
@@ -648,12 +649,42 @@ export default function App() {
                   onUpdateWebhook={handleUpdateWebhook}
                 />
               )}
+
+              {currentSlide === "tickets" && firebaseSession && (
+                <TicketsSlide
+                  currentUser={{
+                    uid: firebaseSession.user.uid,
+                    email: firebaseSession.user.email,
+                    displayName: firebaseSession.user.displayName,
+                  }}
+                />
+              )}
             </div>
           )}
 
         </AnimatePresence>
 
       </main>
+
+      {firebaseSession && (
+        <footer className="fixed bottom-0 inset-x-0 z-50 bg-white/95 backdrop-blur border-t border-slate-200 shadow-[0_-8px_30px_rgba(15,23,42,0.06)]">
+          <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-center">
+            <button
+              type="button"
+              onClick={() => setCurrentSlide("tickets")}
+              className={`h-11 px-4 rounded-2xl border flex items-center justify-center gap-2 text-xs font-extrabold cursor-pointer transition-all ${
+                currentSlide === "tickets"
+                  ? "bg-slate-900 border-slate-950 text-white"
+                  : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+              }`}
+              title="Tickets"
+            >
+              <Bug className="w-4 h-4" />
+              <span>Tickets</span>
+            </button>
+          </div>
+        </footer>
+      )}
 
     </div>
   );
