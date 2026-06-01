@@ -96,4 +96,6 @@ Al resolver tickets, Codex no debe crear ramas nuevas. El trabajo de tickets ocu
 
 Cuando Codex termine la implementacion de un ticket, debe moverlo a `onreview`, resumir lo hecho y pedir explicitamente al usuario que lo revise y lo coloque en `done` si esta conforme. Codex no debe mover tickets terminados a `done` por su cuenta.
 
+La revision de cambios de un ticket la hace el usuario. Codex no debe usar el browser de Codex para aprobar visualmente o funcionalmente un ticket en revision; puede correr verificaciones tecnicas necesarias, pero la aceptacion final corresponde al usuario.
+
 Cuando el usuario coloque un ticket en `done` o pida procesar tickets en `done`, Codex debe escanear los cambios locales con `git status --short` y `git diff`, revisar que el scope corresponda al ticket aprobado, correr las verificaciones relevantes, crear un commit descriptivo y subirlo al repo remoto. No mezclar en ese commit cambios no relacionados con el ticket.
