@@ -15,6 +15,7 @@ export type OperationsCollectionRef = {
   where: (fieldPath: string, operator: "==", value: string) => OperationsCollectionRef;
   orderBy: (fieldPath: string, directionStr: "asc" | "desc") => OperationsCollectionRef;
   limit: (limit: number) => OperationsCollectionRef;
+  offset: (offset: number) => OperationsCollectionRef;
   startAfter: (fieldValue: string) => OperationsCollectionRef;
   get: () => Promise<{ docs: OperationDocumentSnapshot[] }>;
 };

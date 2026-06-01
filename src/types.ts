@@ -82,7 +82,10 @@ export interface AddExtractorSubjectResponse {
 
 export interface ExtractorOperationsPage {
   operations: ExtractionRecord[];
-  nextCursor: string | null;
+  page: number;
+  pageSize: number;
+  totalCount: number;
+  totalPages: number;
 }
 
 export interface UserProfile {

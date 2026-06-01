@@ -1,16 +1,21 @@
 import React, { useEffect, useState } from "react";
-import { Play, Calendar, Globe, Table, SlidersHorizontal, Loader2, Plus, Tags, Trash2 } from "lucide-react";
+import { Play, Calendar, Globe, Table, Loader2, Plus, Tags, Trash2, Settings, X } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { AddExtractorSubjectResponse, Extractor, ExtractionRecord, ExtractorOperationsPage } from "../../types";
+import { ConfirmActionModal } from "../shared/ConfirmActionModal";
+import { getPaginationPages } from "./getPaginationPages";
 
 interface DashboardSlideProps {
   extractors: Extractor[];
   isLoading: boolean;
+  viewMode?: "list" | "detail";
+  selectedExtractorIdFromRoute?: string | null;
+  onSelectExtractor?: (id: string) => void;
   onRunScan: (id: string, dateRange?: { after?: string; before?: string }) => Promise<void>;
   onToggleSchedule: (id: string, enabled: boolean) => Promise<void>;
   onUpdateWebhook: (id: string, url: string) => Promise<void>;
   onAddSubject: (id: string, subject: string) => Promise<AddExtractorSubjectResponse>;
-  onLoadOperations: (id: string, cursor?: string | null) => Promise<ExtractorOperationsPage>;
+  onLoadOperations: (id: string, page?: number) => Promise<ExtractorOperationsPage>;
   onDeleteExtractor: (id: string) => Promise<void>;
   onCreateExtractor: () => void;
 }
@@ -23,6 +28,9 @@ interface DashboardSlideProps {
 export const DashboardSlide: React.FC<DashboardSlideProps> = ({
   extractors,
   isLoading,
+  viewMode = "detail",
+  selectedExtractorIdFromRoute,
+  onSelectExtractor,
   onRunScan,
   onToggleSchedule,
   onUpdateWebhook,
@@ -50,8 +58,10 @@ export const DashboardSlide: React.FC<DashboardSlideProps> = ({
   const [syncBeforeByExtractorId, setSyncBeforeByExtractorId] = useState<Record<string, string>>({});
   const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
   const [operationRowsByExtractorId, setOperationRowsByExtractorId] = useState<Record<string, ExtractionRecord[]>>({});
-  const [operationCursorByExtractorId, setOperationCursorByExtractorId] = useState<Record<string, string | null>>({});
+  const [operationPageByExtractorId, setOperationPageByExtractorId] = useState<Record<string, ExtractorOperationsPage>>({});
   const [loadingOperationsId, setLoadingOperationsId] = useState<string | null>(null);
+  const [isSettingsPanelOpen, setIsSettingsPanelOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<Extractor | null>(null);
 
   useEffect(() => {
     if (extractors.length === 0) {
@@ -63,6 +73,12 @@ export const DashboardSlide: React.FC<DashboardSlideProps> = ({
       setSelectedExtractorId(extractors[0].id);
     }
   }, [extractors, selectedExtractorId]);
+
+  useEffect(() => {
+    if (selectedExtractorIdFromRoute && extractors.some((extractor) => extractor.id === selectedExtractorIdFromRoute)) {
+      setSelectedExtractorId(selectedExtractorIdFromRoute);
+    }
+  }, [extractors, selectedExtractorIdFromRoute]);
 
   const handleManualSync = async (id: string) => {
     const after = syncAfterByExtractorId[id] || undefined;
@@ -77,9 +93,9 @@ export const DashboardSlide: React.FC<DashboardSlideProps> = ({
       setSyncFeedback((prev) => ({ ...prev, [id]: "" }));
 
       await onRunScan(id, { after, before });
-      const page = await onLoadOperations(id);
+      const page = await onLoadOperations(id, 1);
       setOperationRowsByExtractorId((prev) => ({ ...prev, [id]: page.operations }));
-      setOperationCursorByExtractorId((prev) => ({ ...prev, [id]: page.nextCursor }));
+      setOperationPageByExtractorId((prev) => ({ ...prev, [id]: page }));
 
       const rangeLabel = after || before ? " for the selected dates" : "";
       setSyncFeedback((prev) => ({ ...prev, [id]: `Scan completed${rangeLabel}. Check updated records below.` }));
@@ -116,9 +132,9 @@ export const DashboardSlide: React.FC<DashboardSlideProps> = ({
       setIsSavingSubject(true);
       setSubjectFeedback("Searching Gmail, running Gemini, and extracting with the current schema...");
       const result = await onAddSubject(id, subject);
-      const page = await onLoadOperations(id);
+      const page = await onLoadOperations(id, 1);
       setOperationRowsByExtractorId((prev) => ({ ...prev, [id]: page.operations }));
-      setOperationCursorByExtractorId((prev) => ({ ...prev, [id]: page.nextCursor }));
+      setOperationPageByExtractorId((prev) => ({ ...prev, [id]: page }));
       setNewSubjectValue("");
       setSubjectFeedback(result.message);
     } catch (err: any) {
@@ -128,24 +144,22 @@ export const DashboardSlide: React.FC<DashboardSlideProps> = ({
     }
   };
 
-  const handleDeleteExtractor = async (id: string, name: string) => {
-    const shouldDelete = window.confirm(`Delete extractor "${name}"? This will remove its schema, subjects, and parsed records.`);
-
-    if (!shouldDelete) {
-      return;
-    }
-
+  const handleConfirmDeleteExtractor = async () => {
+    if (!deleteTarget) return;
+    const targetId = deleteTarget.id;
     try {
       setDeletingIds((prev) => {
         const next = new Set(prev);
-        next.add(id);
+        next.add(targetId);
         return next;
       });
-      await onDeleteExtractor(id);
+      await onDeleteExtractor(targetId);
+      setDeleteTarget(null);
+      setIsSettingsPanelOpen(false);
     } finally {
       setDeletingIds((prev) => {
         const next = new Set(prev);
-        next.delete(id);
+        next.delete(targetId);
         return next;
       });
     }
@@ -155,7 +169,21 @@ export const DashboardSlide: React.FC<DashboardSlideProps> = ({
   const selectedOperationRows = selectedExtractor
     ? operationRowsByExtractorId[selectedExtractor.id] || selectedExtractor.extractions || []
     : [];
-  const selectedOperationCursor = selectedExtractor ? operationCursorByExtractorId[selectedExtractor.id] : null;
+  const selectedOperationPage = selectedExtractor ? operationPageByExtractorId[selectedExtractor.id] : null;
+  const selectedSyncDateFields = selectedExtractor
+    ? [
+        {
+          label: "From",
+          value: syncAfterByExtractorId[selectedExtractor.id] || "",
+          update: (value: string) => setSyncAfterByExtractorId((prev) => ({ ...prev, [selectedExtractor.id]: value })),
+        },
+        {
+          label: "To",
+          value: syncBeforeByExtractorId[selectedExtractor.id] || "",
+          update: (value: string) => setSyncBeforeByExtractorId((prev) => ({ ...prev, [selectedExtractor.id]: value })),
+        },
+      ]
+    : [];
 
   useEffect(() => {
     if (!selectedExtractorId || operationRowsByExtractorId[selectedExtractorId]) return;
@@ -166,7 +194,7 @@ export const DashboardSlide: React.FC<DashboardSlideProps> = ({
       .then((page) => {
         if (!isMounted) return;
         setOperationRowsByExtractorId((prev) => ({ ...prev, [selectedExtractorId]: page.operations }));
-        setOperationCursorByExtractorId((prev) => ({ ...prev, [selectedExtractorId]: page.nextCursor }));
+        setOperationPageByExtractorId((prev) => ({ ...prev, [selectedExtractorId]: page }));
       })
       .catch((error) => {
         console.error(error);
@@ -182,18 +210,12 @@ export const DashboardSlide: React.FC<DashboardSlideProps> = ({
     };
   }, [selectedExtractorId, operationRowsByExtractorId, onLoadOperations]);
 
-  const handleLoadMoreOperations = async (id: string) => {
-    const cursor = operationCursorByExtractorId[id];
-    if (!cursor) return;
-
+  const handleLoadOperationsPage = async (id: string, pageNumber: number) => {
     setLoadingOperationsId(id);
     try {
-      const page = await onLoadOperations(id, cursor);
-      setOperationRowsByExtractorId((prev) => ({
-        ...prev,
-        [id]: [...(prev[id] || []), ...page.operations],
-      }));
-      setOperationCursorByExtractorId((prev) => ({ ...prev, [id]: page.nextCursor }));
+      const page = await onLoadOperations(id, pageNumber);
+      setOperationRowsByExtractorId((prev) => ({ ...prev, [id]: page.operations }));
+      setOperationPageByExtractorId((prev) => ({ ...prev, [id]: page }));
     } finally {
       setLoadingOperationsId(null);
     }
@@ -201,22 +223,24 @@ export const DashboardSlide: React.FC<DashboardSlideProps> = ({
 
   return (
     <div className="space-y-6" id="dashboard-workbench">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div>
-          <h2 className="text-xl font-extrabold text-slate-900">Extraction Dashboard</h2>
-          <p className="text-xs text-slate-500 font-semibold mt-1">
-            {isLoading ? "Loading saved extractors..." : `${extractors.length} saved extractors available.`}
-          </p>
+      {viewMode === "list" && (
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <h2 className="text-xl font-extrabold text-slate-900">Extraction Dashboard</h2>
+            <p className="text-xs text-slate-500 font-semibold mt-1">
+              {isLoading ? "Loading saved extractors..." : `${extractors.length} saved extractors available.`}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onCreateExtractor}
+            className="inline-flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 border border-indigo-700 text-white font-bold text-xs rounded-xl px-4 py-2.5 cursor-pointer shadow-sm"
+          >
+            <Plus className="w-4 h-4" />
+            <span>New Extractor</span>
+          </button>
         </div>
-        <button
-          type="button"
-          onClick={onCreateExtractor}
-          className="inline-flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 border border-indigo-700 text-white font-bold text-xs rounded-xl px-4 py-2.5 cursor-pointer shadow-sm"
-        >
-          <Plus className="w-4 h-4" />
-          <span>New Extractor</span>
-        </button>
-      </div>
+      )}
       
       {extractors.length === 0 ? (
         <div className="max-w-md mx-auto text-center py-16 bg-white border border-slate-200 rounded-2xl p-8" id="empty-dashboard">
@@ -235,26 +259,27 @@ export const DashboardSlide: React.FC<DashboardSlideProps> = ({
           </button>
         </div>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className={viewMode === "list" ? "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4" : "grid grid-cols-1"}>
           
           {/* List Bento Grid */}
-          <div className="space-y-4 lg:col-span-1">
+          {viewMode === "list" && (
+          <div className="space-y-4 md:contents">
             <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 select-none">
               Your Saved Extractors ({extractors.length})
             </h3>
 
-            <div className="space-y-3">
+            <div className="md:col-span-2 xl:col-span-3 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
               {extractors.map((ext) => {
                 const isSelected = ext.id === selectedExtractorId;
-                const isSyncing = syncingIds.has(ext.id);
-                const isDeleting = deletingIds.has(ext.id);
-                const feedback = syncFeedback[ext.id];
                 const registeredSubjects = ext.subjects?.length ? ext.subjects : [{ id: `${ext.id}-legacy-query`, value: ext.query }];
 
                 return (
                   <div
                     key={ext.id}
-                    onClick={() => setSelectedExtractorId(ext.id)}
+                    onClick={() => {
+                      setSelectedExtractorId(ext.id);
+                      onSelectExtractor?.(ext.id);
+                    }}
                     className={`p-4 border rounded-2xl cursor-pointer transition-all flex flex-col justify-between ${
                       isSelected
                         ? "border-indigo-600 bg-indigo-50/5 shadow-sm"
@@ -278,79 +303,16 @@ export const DashboardSlide: React.FC<DashboardSlideProps> = ({
                         </p>
                       </div>
                     </div>
-
-                    {/* Meta controls & actions */}
-                    <div className="border-t border-slate-100 mt-3 pt-3 flex flex-wrap gap-3 items-center justify-between" onClick={(e) => e.stopPropagation()}>
-                      {/* Scan trigger */}
-                      <div className="flex flex-wrap items-end gap-2">
-                        <label className="flex flex-col gap-1 text-[9px] font-bold uppercase tracking-wide text-slate-400">
-                          From
-                          <input
-                            type="date"
-                            value={syncAfterByExtractorId[ext.id] || ""}
-                            onChange={(e) => setSyncAfterByExtractorId((prev) => ({ ...prev, [ext.id]: e.target.value }))}
-                            disabled={isSyncing || isDeleting}
-                            className="h-8 rounded-lg border border-slate-200 bg-white px-2 text-[11px] font-semibold normal-case tracking-normal text-slate-700 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                          />
-                        </label>
-                        <label className="flex flex-col gap-1 text-[9px] font-bold uppercase tracking-wide text-slate-400">
-                          To
-                          <input
-                            type="date"
-                            value={syncBeforeByExtractorId[ext.id] || ""}
-                            onChange={(e) => setSyncBeforeByExtractorId((prev) => ({ ...prev, [ext.id]: e.target.value }))}
-                            disabled={isSyncing || isDeleting}
-                            className="h-8 rounded-lg border border-slate-200 bg-white px-2 text-[11px] font-semibold normal-case tracking-normal text-slate-700 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                          />
-                        </label>
-                        <button
-                          onClick={() => handleManualSync(ext.id)}
-                          disabled={isSyncing || isDeleting}
-                          className="h-8 px-3 rounded-lg bg-slate-900 border border-slate-950 hover:bg-black text-white font-bold text-[10px] transition-all flex items-center gap-1 cursor-pointer select-none"
-                        >
-                          {isSyncing ? <Loader2 className="w-2.5 h-2.5 animate-spin" /> : <Play className="w-2.5 h-2.5 fill-current" />}
-                          <span>Sync Box</span>
-                        </button>
-                      </div>
-
-                      {/* Schedule toggle checkbox */}
-                      <label className="flex items-center gap-1.5 cursor-pointer text-[10px] font-bold text-slate-500 select-none">
-                        <input
-                          type="checkbox"
-                          checked={ext.enabledSchedule}
-                          onChange={(e) => onToggleSchedule(ext.id, e.target.checked)}
-                          disabled={isDeleting}
-                          className="w-3.5 h-3.5 border-slate-300 text-indigo-600 focus:ring-indigo-500 rounded shrink-0 cursor-pointer"
-                        />
-                        <Calendar className="w-3 h-3 text-slate-400" />
-                        <span>Schedule Run</span>
-                      </label>
-
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteExtractor(ext.id, ext.name)}
-                        disabled={isDeleting}
-                        className="p-1.5 rounded-lg border border-red-100 bg-red-50 text-red-600 hover:bg-red-100 disabled:opacity-50 transition-all cursor-pointer select-none"
-                        title="Delete extractor"
-                        aria-label={`Delete extractor ${ext.name}`}
-                      >
-                        {isDeleting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
-                      </button>
-                    </div>
-
-                    {feedback && (
-                      <div className="mt-2 text-[10px] text-indigo-750 font-bold leading-relaxed">
-                        {feedback}
-                      </div>
-                    )}
                   </div>
                 );
               })}
             </div>
           </div>
+          )}
 
           {/* dynamic Record Table View */}
-          <div className="lg:col-span-2 space-y-6">
+          {viewMode === "detail" && (
+          <div className="space-y-6">
             <AnimatePresence mode="wait">
               {selectedExtractor && (
                 <motion.div
@@ -360,145 +322,80 @@ export const DashboardSlide: React.FC<DashboardSlideProps> = ({
                   exit={{ opacity: 0, y: -10 }}
                   className="space-y-6"
                 >
-                  <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm space-y-4">
-                    <div className="flex flex-col sm:flex-row justify-between items-start gap-3">
+                  <div className="space-y-4">
+                    <div className="flex flex-col xl:flex-row xl:items-end justify-between gap-4">
                       <div>
-                        <h3 className="text-sm font-extrabold text-slate-800 flex items-center gap-2">
-                          <Tags className="w-4 h-4 text-indigo-500" /> Registered Subjects
-                        </h3>
-                        <p className="text-slate-555 text-xs leading-relaxed mt-1">
-                          These subject searches share this extractor schema and parsed dataset.
+                        <span className="text-[10px] font-extrabold uppercase tracking-wider text-indigo-600">
+                          {selectedExtractor.detectedType}
+                        </span>
+                        <h3 className="mt-1 text-xl font-extrabold text-slate-900">{selectedExtractor.name}</h3>
+                        <p className="text-slate-500 text-[11px] mt-1">
+                          {selectedExtractor.operationCount || selectedOperationRows.length} current extraction{(selectedExtractor.operationCount || selectedOperationRows.length) === 1 ? "" : "s"}
                         </p>
                       </div>
-                    </div>
-
-                    <div className="flex flex-wrap gap-2">
-                      {(selectedExtractor.subjects?.length
-                        ? selectedExtractor.subjects
-                        : [{ id: `${selectedExtractor.id}-legacy-query`, value: selectedExtractor.query }]
-                      ).map((subject) => (
-                        <span
-                          key={subject.id}
-                          className="inline-flex max-w-full items-center rounded-lg border border-indigo-100 bg-indigo-50 px-2.5 py-1 text-[11px] font-bold text-indigo-700"
-                          title={subject.value}
-                        >
-                          <span className="truncate">subject:"{subject.value}"</span>
-                        </span>
-                      ))}
-                    </div>
-
-                    <form onSubmit={(e) => handleSubjectSubmit(e, selectedExtractor.id)} className="flex flex-col sm:flex-row gap-2">
-                      <input
-                        type="text"
-                        value={newSubjectValue}
-                        onChange={(e) => setNewSubjectValue(e.target.value)}
-                        placeholder="Add subject and extract matching emails"
-                        className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-indigo-105"
-                      />
-                      <button
-                        type="submit"
-                        disabled={isSavingSubject || !newSubjectValue.trim()}
-                        className="bg-slate-900 border border-slate-950 hover:bg-black disabled:opacity-50 font-bold text-xs text-white rounded-xl px-4 py-2 cursor-pointer select-none inline-flex items-center justify-center gap-1.5"
-                      >
-                        {isSavingSubject ? <Loader2 className="w-3 h-3 animate-spin" /> : <Plus className="w-3 h-3" />}
-                        <span>{isSavingSubject ? "Extracting" : "Add & Extract"}</span>
-                      </button>
-                    </form>
-
-                    {subjectFeedback && (
-                      <p className="text-[11px] font-bold text-slate-500">{subjectFeedback}</p>
-                    )}
-                  </div>
-
-                  {/* Webhook integrator card */}
-                  <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm space-y-3">
-                    <h3 className="text-sm font-extrabold text-slate-800 flex items-center gap-2">
-                      <Globe className="w-4 h-4 text-indigo-500" /> External Webhook Integration
-                    </h3>
-                    <p className="text-slate-555 text-xs leading-relaxed">
-                      Transformations can automatically cascade to your apps. Register an HTTP URL, and every new detected row dispatches a POST request instantly.
-                    </p>
-
-                    {editingWebhookId === selectedExtractor.id ? (
-                      <form onSubmit={(e) => handleWebhookSubmit(e, selectedExtractor.id)} className="flex flex-col sm:flex-row gap-2 mt-2">
-                        <input
-                          type="url"
-                          value={tempWebhookUrl}
-                          onChange={(e) => setTempWebhookUrl(e.target.value)}
-                          placeholder="https://api.myplatform.com/v1/webhooks/gmail"
-                          className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-indigo-105"
-                          required
-                        />
-                        <div className="flex gap-1">
+                      <div className="flex flex-col items-stretch xl:items-end gap-2">
+                        <div className="flex flex-wrap items-end gap-2">
+                          {selectedSyncDateFields.map((field) => (
+                            <label key={field.label} className="flex flex-col gap-1 text-[9px] font-bold uppercase tracking-wide text-slate-400">
+                              {field.label}
+                              <input
+                                type="date"
+                                value={field.value}
+                                onChange={(e) => field.update(e.target.value)}
+                                disabled={syncingIds.has(selectedExtractor.id)}
+                                className="h-9 rounded-lg border border-slate-200 bg-white px-2 text-[11px] font-semibold normal-case tracking-normal text-slate-700 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                              />
+                            </label>
+                          ))}
                           <button
-                            type="submit"
-                            disabled={isSavingWebhook}
-                            className="bg-indigo-650 hover:bg-indigo-700 bg-indigo-600 font-bold text-xs text-white rounded-xl px-4 py-2 cursor-pointer select-none"
+                            type="button"
+                            onClick={() => handleManualSync(selectedExtractor.id)}
+                            disabled={syncingIds.has(selectedExtractor.id)}
+                            className="h-9 px-4 rounded-lg bg-slate-900 border border-slate-950 hover:bg-black text-white font-bold text-xs transition-all inline-flex items-center gap-1.5 cursor-pointer select-none"
                           >
-                            {isSavingWebhook ? "Saving..." : "Save Endpoint"}
+                            {syncingIds.has(selectedExtractor.id) ? <Loader2 className="w-3 h-3 animate-spin" /> : <Play className="w-3 h-3 fill-current" />}
+                            <span>Sync Box</span>
                           </button>
                           <button
                             type="button"
-                            onClick={() => setEditingWebhookId(null)}
-                            className="bg-slate-100 hover:bg-slate-200 font-bold text-xs text-slate-500 rounded-xl px-3 py-2 cursor-pointer select-none"
+                            onClick={() => setIsSettingsPanelOpen(true)}
+                            className="h-9 w-9 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 hover:text-slate-900 inline-flex items-center justify-center cursor-pointer"
+                            title="Extractor settings"
+                            aria-label="Open extractor settings"
                           >
-                            Cancel
+                            <Settings className="w-4 h-4" />
                           </button>
                         </div>
-                      </form>
-                    ) : (
-                      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-slate-55/40 bg-slate-50 border border-slate-100 rounded-2xl p-4 mt-2">
-                        <div className="min-w-0">
-                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">Destination Hook Endpoint:</span>
-                          <p className="text-xs text-slate-655 font-mono truncate max-w-sm sm:max-w-md mt-0.5 select-text">
-                            {selectedExtractor.webhookUrl || "(No destination endpoint configured)"}
-                          </p>
-                        </div>
-                        <button
-                          onClick={() => {
-                            setEditingWebhookId(selectedExtractor.id);
-                            setTempWebhookUrl(selectedExtractor.webhookUrl || "");
-                          }}
-                          className="py-1.5 px-4 font-bold rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 hover:text-slate-900 transition-all text-xs cursor-pointer select-none shrink-0 self-center"
-                        >
-                          Modify Destination
-                        </button>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Extraction log Database table card */}
-                  <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm space-y-4">
-                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-slate-150 border-slate-100 pb-3 gap-3">
-                      <div>
-                        <h4 className="text-sm font-extrabold text-slate-800 flex items-center gap-1.5">
-                          <SlidersHorizontal className="w-4 h-4 text-slate-500" /> Parsed Dataset Table
-                        </h4>
-                        <p className="text-slate-500 text-[11px]">
-                          Dynamic table showing current rows parsed from corresponding emails.
-                        </p>
+                        {syncFeedback[selectedExtractor.id] && (
+                          <p className="text-[11px] font-bold text-indigo-700 xl:text-right">{syncFeedback[selectedExtractor.id]}</p>
+                        )}
                       </div>
                     </div>
 
                     {loadingOperationsId === selectedExtractor.id && selectedOperationRows.length === 0 ? (
-                      <div className="text-center py-10 font-medium text-slate-655 text-xs bg-slate-55/20 bg-slate-50 border border-dashed border-slate-200 rounded-2xl">
+                      <div className="text-center py-10 font-medium text-slate-655 text-xs">
                         Loading parsed operations...
                       </div>
                     ) : selectedOperationRows.length === 0 ? (
-                      <div className="text-center py-10 font-medium text-slate-655 text-xs bg-slate-55/20 bg-slate-50 border border-dashed border-slate-200 rounded-2xl">
+                      <div className="text-center py-10 font-medium text-slate-655 text-xs">
                         No rows reside inside this extractor store yet. Press "Sync Box" to crawler.
                       </div>
                     ) : (
                       <div className="space-y-3">
-                        <div className="overflow-x-auto border border-slate-100 rounded-2xl max-h-[450px]" style={{ scrollbarWidth: "thin" }}>
-                          <table className="w-full text-left border-collapse min-w-[600px]">
+                        <div className="bg-white rounded-2xl overflow-hidden">
+                          <table className="w-full table-fixed text-left border-separate border-spacing-0">
                             <thead>
-                              <tr className="bg-slate-50 border-b border-slate-100 text-[10px] font-extrabold uppercase text-slate-450 text-slate-400 tracking-wider">
-                                <th className="py-3 px-4">Subject</th>
-                                <th className="py-3 px-4">From</th>
-                                <th className="py-3 px-4">Date</th>
-                                {selectedExtractor.schemaFields.map((field) => (
-                                  <th key={field.fieldName} className="py-3 px-4 text-indigo-700 font-mono">
+                              <tr className="bg-slate-50 text-[10px] font-extrabold uppercase text-slate-450 text-slate-400 tracking-wider">
+                                <th className="py-3 px-4 rounded-tl-2xl border-b border-slate-100">Subject</th>
+                                <th className="py-3 px-4 border-b border-slate-100">From</th>
+                                <th className="py-3 px-4 border-b border-slate-100">Date</th>
+                                {selectedExtractor.schemaFields.map((field, index) => (
+                                  <th
+                                    key={field.fieldName}
+                                    className={`py-3 px-4 text-indigo-700 font-mono border-b border-slate-100 ${
+                                      index === selectedExtractor.schemaFields.length - 1 ? "rounded-tr-2xl" : ""
+                                    }`}
+                                  >
                                     {field.fieldName}
                                   </th>
                                 ))}
@@ -507,13 +404,13 @@ export const DashboardSlide: React.FC<DashboardSlideProps> = ({
                             <tbody className="divide-y divide-slate-55 divide-slate-100 text-xs text-slate-655">
                               {selectedOperationRows.map((rec) => (
                                 <tr key={rec.id} className="hover:bg-slate-50/40 select-all">
-                                  <td className="py-3 px-4 font-bold text-slate-800 max-w-[180px] truncate" title={rec.subject}>
+                                  <td className="py-3 px-4 font-bold text-slate-800 break-words" title={rec.subject}>
                                     {rec.subject}
                                   </td>
-                                  <td className="py-3 px-4 max-w-[150px] truncate" title={rec.from}>
+                                  <td className="py-3 px-4 break-words" title={rec.from}>
                                     {rec.from.split("<")[0].trim() || rec.from}
                                   </td>
-                                  <td className="py-3 px-4 whitespace-nowrap text-[10px] text-slate-400">
+                                  <td className="py-3 px-4 text-[10px] text-slate-400 break-words">
                                     {rec.date.split(" ")[0]}
                                   </td>
                                   {selectedExtractor.schemaFields.map((field) => {
@@ -523,7 +420,7 @@ export const DashboardSlide: React.FC<DashboardSlideProps> = ({
                                       : "";
 
                                     return (
-                                      <td key={field.fieldName} className="py-3 px-4 font-mono text-[11px] text-slate-700 select-text bg-indigo-50/10">
+                                      <td key={field.fieldName} className="py-3 px-4 font-mono text-[11px] text-slate-700 select-text bg-indigo-50/10 break-words">
                                         {displayVal}
                                       </td>
                                     );
@@ -533,24 +430,239 @@ export const DashboardSlide: React.FC<DashboardSlideProps> = ({
                             </tbody>
                           </table>
                         </div>
-                        {selectedOperationCursor && (
-                          <button
-                            type="button"
-                            onClick={() => handleLoadMoreOperations(selectedExtractor.id)}
-                            disabled={loadingOperationsId === selectedExtractor.id}
-                            className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-[11px] font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-60"
-                          >
-                            {loadingOperationsId === selectedExtractor.id && <Loader2 className="w-3 h-3 animate-spin" />}
-                            <span>Load 20 more</span>
-                          </button>
+                        {selectedOperationPage && selectedOperationPage.totalPages > 1 && (
+                          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-3">
+                            <p className="text-[11px] font-bold text-slate-500">
+                              Page {selectedOperationPage.page} of {selectedOperationPage.totalPages} · {selectedOperationPage.totalCount} records
+                            </p>
+                            <div className="flex items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => handleLoadOperationsPage(selectedExtractor.id, selectedOperationPage.page - 1)}
+                                disabled={loadingOperationsId === selectedExtractor.id || selectedOperationPage.page <= 1}
+                                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-[11px] font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                              >
+                                Previous
+                              </button>
+                              {getPaginationPages(selectedOperationPage.page, selectedOperationPage.totalPages).map((pageNumber) => (
+                                <button
+                                  key={pageNumber}
+                                  type="button"
+                                  onClick={() => handleLoadOperationsPage(selectedExtractor.id, pageNumber)}
+                                  disabled={loadingOperationsId === selectedExtractor.id || selectedOperationPage.page === pageNumber}
+                                  className={`h-8 min-w-8 rounded-lg border px-2 text-[11px] font-bold disabled:opacity-100 ${
+                                    selectedOperationPage.page === pageNumber
+                                      ? "border-slate-950 bg-slate-900 text-white"
+                                      : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                                  }`}
+                                >
+                                  {pageNumber}
+                                </button>
+                              ))}
+                              <button
+                                type="button"
+                                onClick={() => handleLoadOperationsPage(selectedExtractor.id, selectedOperationPage.page + 1)}
+                                disabled={loadingOperationsId === selectedExtractor.id || selectedOperationPage.page >= selectedOperationPage.totalPages}
+                                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-[11px] font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                              >
+                                Next
+                              </button>
+                            </div>
+                          </div>
                         )}
                       </div>
                     )}
                   </div>
+
+                  <AnimatePresence>
+                    {isSettingsPanelOpen && (
+                      <>
+                        <motion.button
+                          type="button"
+                          className="fixed inset-0 z-40 bg-slate-950/20 cursor-default"
+                          aria-label="Close extractor settings"
+                          onClick={() => setIsSettingsPanelOpen(false)}
+                          initial={{ opacity: 0 }}
+                          animate={{ opacity: 1 }}
+                          exit={{ opacity: 0 }}
+                        />
+                        <motion.aside
+                          className="fixed inset-y-0 right-0 z-50 w-full max-w-md bg-white border-l border-slate-200 shadow-2xl p-6 overflow-y-auto"
+                          initial={{ x: "100%" }}
+                          animate={{ x: 0 }}
+                          exit={{ x: "100%" }}
+                          transition={{ type: "spring", stiffness: 320, damping: 34 }}
+                        >
+                          <div className="flex items-start justify-between gap-3 border-b border-slate-100 pb-4">
+                            <div>
+                              <h3 className="text-sm font-extrabold text-slate-900">Extractor settings</h3>
+                              <p className="text-[11px] font-semibold text-slate-500 mt-1 line-clamp-2">{selectedExtractor.name}</p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setIsSettingsPanelOpen(false)}
+                              className="h-8 w-8 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-500 inline-flex items-center justify-center cursor-pointer"
+                              aria-label="Close extractor settings"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
+                          </div>
+
+                          <div className="mt-6 space-y-8">
+                            <section className="space-y-4">
+                              <div>
+                                <h4 className="text-sm font-extrabold text-slate-800 flex items-center gap-2">
+                                  <Tags className="w-4 h-4 text-indigo-500" /> Registered Subjects
+                                </h4>
+                                <p className="text-slate-500 text-xs leading-relaxed mt-1">
+                                  These subject searches share this extractor schema and parsed dataset.
+                                </p>
+                              </div>
+
+                              <div className="flex flex-wrap gap-2">
+                                {(selectedExtractor.subjects?.length
+                                  ? selectedExtractor.subjects
+                                  : [{ id: `${selectedExtractor.id}-legacy-query`, value: selectedExtractor.query }]
+                                ).map((subject) => (
+                                  <span
+                                    key={subject.id}
+                                    className="inline-flex max-w-full items-center rounded-lg border border-indigo-100 bg-indigo-50 px-2.5 py-1 text-[11px] font-bold text-indigo-700"
+                                    title={subject.value}
+                                  >
+                                    <span className="truncate">subject:"{subject.value}"</span>
+                                  </span>
+                                ))}
+                              </div>
+
+                              <form onSubmit={(e) => handleSubjectSubmit(e, selectedExtractor.id)} className="flex flex-col sm:flex-row gap-2">
+                                <input
+                                  type="text"
+                                  value={newSubjectValue}
+                                  onChange={(e) => setNewSubjectValue(e.target.value)}
+                                  placeholder="Add subject and extract matching emails"
+                                  className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-indigo-105"
+                                />
+                                <button
+                                  type="submit"
+                                  disabled={isSavingSubject || !newSubjectValue.trim()}
+                                  className="bg-slate-900 border border-slate-950 hover:bg-black disabled:opacity-50 font-bold text-xs text-white rounded-xl px-4 py-2 cursor-pointer select-none inline-flex items-center justify-center gap-1.5"
+                                >
+                                  {isSavingSubject ? <Loader2 className="w-3 h-3 animate-spin" /> : <Plus className="w-3 h-3" />}
+                                  <span>{isSavingSubject ? "Extracting" : "Add & Extract"}</span>
+                                </button>
+                              </form>
+
+                              {subjectFeedback && (
+                                <p className="text-[11px] font-bold text-slate-500">{subjectFeedback}</p>
+                              )}
+                            </section>
+
+                            <section className="space-y-3 border-t border-slate-100 pt-6">
+                              <h4 className="text-sm font-extrabold text-slate-800 flex items-center gap-2">
+                                <Calendar className="w-4 h-4 text-indigo-500" /> Extractor Controls
+                              </h4>
+
+                              <label className="flex items-center justify-between gap-3 rounded-2xl border border-slate-100 bg-slate-50 p-4 cursor-pointer">
+                                <span className="flex items-center gap-2 text-xs font-bold text-slate-700">
+                                  <Calendar className="w-4 h-4 text-slate-400" />
+                                  Schedule Run
+                                </span>
+                                <input
+                                  type="checkbox"
+                                  checked={selectedExtractor.enabledSchedule}
+                                  onChange={(e) => onToggleSchedule(selectedExtractor.id, e.target.checked)}
+                                  disabled={deletingIds.has(selectedExtractor.id)}
+                                  className="w-4 h-4 border-slate-300 text-indigo-600 focus:ring-indigo-500 rounded shrink-0 cursor-pointer"
+                                />
+                              </label>
+
+                              <button
+                                type="button"
+                                onClick={() => setDeleteTarget(selectedExtractor)}
+                                disabled={deletingIds.has(selectedExtractor.id)}
+                                className="w-full inline-flex items-center justify-center gap-2 rounded-xl border border-red-100 bg-red-50 px-4 py-2.5 text-xs font-bold text-red-600 hover:bg-red-100 disabled:opacity-50 cursor-pointer"
+                              >
+                                {deletingIds.has(selectedExtractor.id) ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                                <span>Delete extractor</span>
+                              </button>
+                            </section>
+
+                            <section className="space-y-3 border-t border-slate-100 pt-6">
+                              <h4 className="text-sm font-extrabold text-slate-800 flex items-center gap-2">
+                                <Globe className="w-4 h-4 text-indigo-500" /> External Webhook Integrations
+                              </h4>
+                              <p className="text-slate-500 text-xs leading-relaxed">
+                                Register an HTTP URL, and every new detected row dispatches a POST request instantly.
+                              </p>
+
+                              {editingWebhookId === selectedExtractor.id ? (
+                                <form onSubmit={(e) => handleWebhookSubmit(e, selectedExtractor.id)} className="flex flex-col gap-2 mt-2">
+                                  <input
+                                    type="url"
+                                    value={tempWebhookUrl}
+                                    onChange={(e) => setTempWebhookUrl(e.target.value)}
+                                    placeholder="https://api.myplatform.com/v1/webhooks/gmail"
+                                    className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-indigo-105"
+                                    required
+                                  />
+                                  <div className="flex gap-1">
+                                    <button
+                                      type="submit"
+                                      disabled={isSavingWebhook}
+                                      className="bg-indigo-600 hover:bg-indigo-700 font-bold text-xs text-white rounded-xl px-4 py-2 cursor-pointer select-none"
+                                    >
+                                      {isSavingWebhook ? "Saving..." : "Save Endpoint"}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => setEditingWebhookId(null)}
+                                      className="bg-slate-100 hover:bg-slate-200 font-bold text-xs text-slate-500 rounded-xl px-3 py-2 cursor-pointer select-none"
+                                    >
+                                      Cancel
+                                    </button>
+                                  </div>
+                                </form>
+                              ) : (
+                                <div className="flex flex-col gap-3 bg-slate-50 border border-slate-100 rounded-2xl p-4 mt-2">
+                                  <div className="min-w-0">
+                                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">Destination Hook Endpoint:</span>
+                                    <p className="text-xs text-slate-655 font-mono break-all mt-0.5 select-text">
+                                      {selectedExtractor.webhookUrl || "(No destination endpoint configured)"}
+                                    </p>
+                                  </div>
+                                  <button
+                                    onClick={() => {
+                                      setEditingWebhookId(selectedExtractor.id);
+                                      setTempWebhookUrl(selectedExtractor.webhookUrl || "");
+                                    }}
+                                    className="py-1.5 px-4 font-bold rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 hover:text-slate-900 transition-all text-xs cursor-pointer select-none self-start"
+                                  >
+                                    Modify Destination
+                                  </button>
+                                </div>
+                              )}
+                            </section>
+                          </div>
+                        </motion.aside>
+                      </>
+                    )}
+                  </AnimatePresence>
+                  <ConfirmActionModal
+                    isOpen={!!deleteTarget}
+                    title="Delete extractor?"
+                    description={`This will remove "${deleteTarget?.name || "this extractor"}" from your saved extractors.`}
+                    confirmLabel="Delete extractor"
+                    cancelLabel="Keep extractor"
+                    tone="danger"
+                    isWorking={!!deleteTarget && deletingIds.has(deleteTarget.id)}
+                    onConfirm={handleConfirmDeleteExtractor}
+                    onCancel={() => setDeleteTarget(null)}
+                  />
                 </motion.div>
               )}
             </AnimatePresence>
           </div>
+          )}
 
         </div>
       )}

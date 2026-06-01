@@ -53,7 +53,7 @@ sequenceDiagram
   participant Firestore as Firestore
   participant Gmail as Gmail API
 
-  User->>Frontend: Crea extractor escribiendo el primer asunto del correo
+  User->>Frontend: Entra a /extractors/create y escribe el primer asunto del correo
   Frontend->>Frontend: Guarda el asunto inicial como subjects del extractor en creacion
   Frontend->>Function: searchEmails(subject) con Authorization Firebase
   Function->>FirebaseAuth: Verifica Firebase ID token
@@ -140,10 +140,12 @@ sequenceDiagram
     Function->>Firestore: Guarda documento extractors/{extractorId} con userId y metadata
     Function->>Firestore: Crea operations/{extractorId_emailId} para emails nuevos e incrementa operationCount
     Function-->>Frontend: Devuelve extractor guardado
-    Frontend->>Function: listExtractorOperations(extractorId, limit 20)
-    Function->>Firestore: Lee operations por extractorId ordenadas por timestamp
-    Function-->>Frontend: Devuelve primera pagina de operaciones
-    Frontend-->>User: Muestra dashboard con tabla paginada
+    Frontend->>Function: listExtractorOperations(extractorId, page, limit 20)
+    Function->>Firestore: Lee operationCount acumulado del extractor y operations por extractorId
+    Function-->>Frontend: Devuelve pagina, totalCount y totalPages
+    Frontend-->>User: Muestra /extractors con cards de extractores guardados
+    User->>Frontend: Selecciona una card de extractor
+    Frontend-->>User: Abre /extractors/{extractorId} con la tabla paginada
   else Extractor invalido
     Function-->>Frontend: Devuelve error o solicita ajuste
     Frontend-->>User: Muestra estado para correccion
@@ -177,9 +179,9 @@ sequenceDiagram
   Function->>Firestore: Guarda operations nuevas e incrementa operationCount
   Function->>Firestore: Actualiza subject y contadores en extractors/{extractorId}
   Function-->>Frontend: Devuelve extractor actualizado y conteo extraido
-  Frontend->>Function: listExtractorOperations(extractorId, limit 20)
-  Function-->>Frontend: Devuelve pagina actualizada de operaciones
-  Frontend-->>User: Muestra subject registrado y filas nuevas en la tabla
+  Frontend->>Function: listExtractorOperations(extractorId, page 1, limit 20)
+  Function-->>Frontend: Devuelve pagina actualizada con totalCount y totalPages
+  Frontend-->>User: Muestra tabla principal actualizada y mantiene subjects en panel lateral
 
   User->>Frontend: Ejecuta extractor o sincroniza correos con fechas opcionales
   Frontend->>Function: triggerExtractor(extractorId, after, before) con Authorization Firebase
@@ -200,9 +202,9 @@ sequenceDiagram
   Function->>Firestore: Guarda operations nuevas e incrementa operationCount
   Function->>Firestore: Actualiza lastScannedAt y triggerCount en extractors/{extractorId}
   Function-->>Frontend: Devuelve resultados
-  Frontend->>Function: listExtractorOperations(extractorId, limit 20)
-  Function-->>Frontend: Devuelve pagina actualizada de operaciones
-  Frontend-->>User: Actualiza tabla paginada
+  Frontend->>Function: listExtractorOperations(extractorId, page 1, limit 20)
+  Function-->>Frontend: Devuelve pagina actualizada con totalCount y totalPages
+  Frontend-->>User: Actualiza tabla paginada como vista principal
 
   User->>Frontend: Elimina un extractor guardado
   Frontend->>Function: deleteExtractor(extractorId) con Authorization Firebase

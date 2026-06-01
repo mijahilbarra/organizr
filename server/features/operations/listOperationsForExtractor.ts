@@ -6,24 +6,24 @@ export async function listOperationsForExtractor(
   extractorId: string,
   userId: string,
   limit = 20,
-  cursor?: string,
-): Promise<{ operations: ExtractionRecord[]; nextCursor: string | null }> {
+  page = 1,
+  totalCount = 0,
+): Promise<{ operations: ExtractionRecord[]; page: number; pageSize: number; totalCount: number; totalPages: number }> {
   const pageSize = Math.max(1, Math.min(20, limit));
+  const currentPage = Math.max(1, page);
+  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+  const offset = (currentPage - 1) * pageSize;
   const operationsCollection = await getOperationsCollection();
-  let query = operationsCollection
+  const query = operationsCollection
     .where("extractorId", "==", extractorId)
     .where("userId", "==", userId)
-    .orderBy("timestamp", "desc");
+    .orderBy("timestamp", "desc")
+    .offset(offset)
+    .limit(pageSize);
 
-  if (cursor) {
-    query = query.startAfter(cursor);
-  }
-
-  const snapshot = await query.limit(pageSize + 1).get();
+  const snapshot = await query.get();
   const docs = snapshot.docs.slice(0, pageSize);
   const operations = docs.map((doc) => normalizeFirestoreOperation(doc.id, doc.data()));
-  const hasNextPage = snapshot.docs.length > pageSize;
-  const nextCursor = hasNextPage ? operations[operations.length - 1]?.timestamp || null : null;
 
-  return { operations, nextCursor };
+  return { operations, page: currentPage, pageSize, totalCount, totalPages };
 }

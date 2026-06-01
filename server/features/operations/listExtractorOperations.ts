@@ -15,8 +15,9 @@ export async function listExtractorOperations(req: Request, res: Response) {
     }
 
     const limit = Number(req.query.limit || 20);
-    const cursor = typeof req.query.cursor === "string" ? req.query.cursor : undefined;
-    const page = await listOperationsForExtractor(id, firebaseUser.uid, limit, cursor);
+    const pageNumber = Number(req.query.page || 1);
+    const totalCount = extractorContext.extractor.operationCount || 0;
+    const page = await listOperationsForExtractor(id, firebaseUser.uid, limit, pageNumber, totalCount);
 
     return res.json(page);
   } catch (error: any) {

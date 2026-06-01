@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { ChevronDown, MailCheck, MailX, Settings, UserRound } from "lucide-react";
+import { ChevronDown, LogOut, MailCheck, MailX, Settings, UserRound } from "lucide-react";
 import { UserProfile } from "../../types";
 import { getGmailConnectionStatus } from "./getGmailConnectionStatus";
 
@@ -9,6 +9,7 @@ interface UserAccountMenuProps {
   onOpenProfile: () => void;
   onConnectGmail: () => Promise<void>;
   onRevokeGmail: () => Promise<void>;
+  onRequestLogout: () => void;
 }
 
 export const UserAccountMenu: React.FC<UserAccountMenuProps> = ({
@@ -17,6 +18,7 @@ export const UserAccountMenu: React.FC<UserAccountMenuProps> = ({
   onOpenProfile,
   onConnectGmail,
   onRevokeGmail,
+  onRequestLogout,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -61,6 +63,11 @@ export const UserAccountMenu: React.FC<UserAccountMenuProps> = ({
     } else {
       await onConnectGmail();
     }
+    setIsOpen(false);
+  };
+
+  const handleRequestLogout = () => {
+    onRequestLogout();
     setIsOpen(false);
   };
 
@@ -151,6 +158,19 @@ export const UserAccountMenu: React.FC<UserAccountMenuProps> = ({
                 : "Conectar Gmail"}
             </button>
           </div>
+
+          <button
+            type="button"
+            onClick={handleRequestLogout}
+            className="mt-2 w-full flex items-center gap-3 px-2 py-2 rounded-xl hover:bg-red-50 cursor-pointer text-left"
+            role="menuitem"
+          >
+            <LogOut className="w-4 h-4 text-red-500 shrink-0" />
+            <span className="flex-1">
+              <span className="block text-sm font-bold text-red-600">Cerrar sesión</span>
+              <span className="block text-xs font-semibold text-red-400">Salir de esta cuenta</span>
+            </span>
+          </button>
         </div>
       )}
     </div>

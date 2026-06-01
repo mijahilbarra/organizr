@@ -1,6 +1,6 @@
 import React, { useCallback, useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { Key, AlertCircle, RefreshCw, LogOut, PlusCircle, Bug, LogIn } from "lucide-react";
+import { Key, AlertCircle, RefreshCw, PlusCircle, Bug, LogIn } from "lucide-react";
 import { EmailMessage, AnalysisResponse, SchemaField, Extractor, UserProfile, AddExtractorSubjectResponse, ExtractorOperationsPage } from "./types";
 import { createBackendHeadersForSession } from "./firebase/createBackendHeadersForSession";
 import type { FirebaseAuthSession } from "./firebase/FirebaseAuthSession";
@@ -12,20 +12,27 @@ import { subscribeToFirebaseUser } from "./firebase/subscribeToFirebaseUser";
 // Import modular feature slide components (each function/component in its own file)
 import { AuthSlide } from "./features/auth/AuthSlide";
 import { CreateExtractorSlide } from "./features/create/CreateExtractorSlide";
+import { isExtractorCreateRoutePath } from "./features/create/isExtractorCreateRoutePath";
+import { pushExtractorCreateRoute } from "./features/create/pushExtractorCreateRoute";
 import { SearchSlide } from "./features/search/SearchSlide";
 import { toggleStringSetValue } from "./features/search/toggleStringSetValue";
 import { SchemaSlide } from "./features/schema/SchemaSlide";
 import { ScriptSlide } from "./features/script/ScriptSlide";
 import { DashboardSlide } from "./features/dashboard/DashboardSlide";
+import { getExtractorIdFromRoutePath } from "./features/dashboard/getExtractorIdFromRoutePath";
+import { isExtractorsRoutePath } from "./features/dashboard/isExtractorsRoutePath";
 import { ProfileSlide } from "./features/profile/ProfileSlide";
 import { UserAccountMenu } from "./features/profile/UserAccountMenu";
 import { isProfileRoutePath } from "./features/profile/isProfileRoutePath";
 import { pushProfileRoute } from "./features/profile/pushProfileRoute";
 import { pushWorkspaceRoute } from "./features/profile/pushWorkspaceRoute";
 import { postExtractorUpdate } from "./features/dashboard/postExtractorUpdate";
+import { pushExtractorDetailRoute } from "./features/dashboard/pushExtractorDetailRoute";
+import { pushExtractorsRoute } from "./features/dashboard/pushExtractorsRoute";
 import { TicketsSlide } from "./features/tickets/TicketsSlide";
 import { isTicketsRoutePath } from "./features/tickets/isTicketsRoutePath";
 import { pushTicketsRoute } from "./features/tickets/pushTicketsRoute";
+import { ConfirmActionModal } from "./features/shared/ConfirmActionModal";
 
 export default function App() {
   // Global states
@@ -37,11 +44,21 @@ export default function App() {
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [isLogoutConfirmOpen, setIsLogoutConfirmOpen] = useState(false);
   const [isProfileRoute, setIsProfileRoute] = useState(isProfileRoutePath(window.location.pathname));
+  const [extractorIdRoute, setExtractorIdRoute] = useState(getExtractorIdFromRoutePath(window.location.pathname));
+  const [isExtractorsRoute, setIsExtractorsRoute] = useState(isExtractorsRoutePath(window.location.pathname));
+  const [isExtractorCreateRoute, setIsExtractorCreateRoute] = useState(isExtractorCreateRoutePath(window.location.pathname));
 
   // Active Wizard flow navigation
   const [currentSlide, setCurrentSlide] = useState<"auth" | "create" | "search" | "schema" | "script" | "dashboard" | "tickets">(
-    isTicketsRoutePath(window.location.pathname) ? "tickets" : "auth"
+    isTicketsRoutePath(window.location.pathname)
+      ? "tickets"
+      : isExtractorCreateRoutePath(window.location.pathname)
+        ? "create"
+      : isExtractorsRoutePath(window.location.pathname) || getExtractorIdFromRoutePath(window.location.pathname)
+        ? "dashboard"
+        : "auth"
   );
 
   // Crawling States
@@ -151,8 +168,15 @@ export default function App() {
     const syncProfileRoute = () => {
       const pathname = window.location.pathname;
       setIsProfileRoute(isProfileRoutePath(pathname));
+      setIsExtractorCreateRoute(isExtractorCreateRoutePath(pathname));
+      setIsExtractorsRoute(isExtractorsRoutePath(pathname));
+      setExtractorIdRoute(getExtractorIdFromRoutePath(pathname));
       if (isTicketsRoutePath(pathname)) {
         setCurrentSlide("tickets");
+      } else if (isExtractorCreateRoutePath(pathname)) {
+        setCurrentSlide(firebaseSession ? "create" : "auth");
+      } else if (isExtractorsRoutePath(pathname) || getExtractorIdFromRoutePath(pathname)) {
+        setCurrentSlide(firebaseSession ? "dashboard" : "auth");
       } else if (!isProfileRoutePath(pathname) && currentSlide === "tickets") {
         setCurrentSlide(firebaseSession ? "dashboard" : "auth");
       }
@@ -198,7 +222,7 @@ export default function App() {
       });
       // Auto transition to saved extractors after login
       if (currentSlide === "auth") {
-        setCurrentSlide("dashboard");
+        setCurrentSlide(isExtractorCreateRoute ? "create" : "dashboard");
       }
     } else {
       setCurrentSlide("auth");
@@ -219,7 +243,14 @@ export default function App() {
         await persistGmailConnection(session, session.gmailAccessToken);
       }
       await fetchExtractors(session);
-      setCurrentSlide("dashboard");
+      if (isExtractorCreateRoute) {
+        setCurrentSlide("create");
+      } else {
+        pushExtractorsRoute();
+        setIsExtractorsRoute(true);
+        setExtractorIdRoute(null);
+        setCurrentSlide("dashboard");
+      }
     } catch (err: any) {
       setErrorText(err.message || "Failed to sign in with Firebase Google provider.");
       setIsLoggingIn(false);
@@ -315,7 +346,11 @@ export default function App() {
       resetAnalysisDraft();
       pushWorkspaceRoute();
       setIsProfileRoute(false);
+      setIsExtractorCreateRoute(false);
+      setIsExtractorsRoute(false);
+      setExtractorIdRoute(null);
       setCurrentSlide("auth");
+      setIsLogoutConfirmOpen(false);
   };
 
   const resetExtractorCreation = () => {
@@ -323,8 +358,11 @@ export default function App() {
     setEmails([]);
     resetAnalysisDraft();
     setErrorText(null);
-    pushWorkspaceRoute();
+    pushExtractorCreateRoute();
     setIsProfileRoute(false);
+    setIsExtractorCreateRoute(true);
+    setIsExtractorsRoute(false);
+    setExtractorIdRoute(null);
     setCurrentSlide("create");
   };
 
@@ -337,10 +375,22 @@ export default function App() {
     if (slide === "tickets") {
       pushTicketsRoute();
     } else {
-      pushWorkspaceRoute();
+      pushExtractorsRoute();
     }
     setIsProfileRoute(false);
+    setIsExtractorCreateRoute(false);
+    setIsExtractorsRoute(slide === "dashboard");
+    setExtractorIdRoute(null);
     setCurrentSlide(slide);
+  };
+
+  const handleOpenExtractorDetail = (id: string) => {
+    pushExtractorDetailRoute(id);
+    setIsProfileRoute(false);
+    setIsExtractorCreateRoute(false);
+    setIsExtractorsRoute(false);
+    setExtractorIdRoute(id);
+    setCurrentSlide("dashboard");
   };
 
   // Gmail Lookup Crawling logic
@@ -495,6 +545,10 @@ export default function App() {
       
       // Update local state smoothly
       setExtractors((prev) => [newExtractor, ...prev]);
+      pushExtractorDetailRoute(newExtractor.id);
+      setIsExtractorCreateRoute(false);
+      setIsExtractorsRoute(false);
+      setExtractorIdRoute(newExtractor.id);
       setCurrentSlide("dashboard");
     } catch (err: any) {
       setErrorText(err.message || "Failed to persist extractor.");
@@ -587,11 +641,8 @@ export default function App() {
     return result;
   };
 
-  const handleLoadExtractorOperations = useCallback(async (id: string, cursor?: string | null): Promise<ExtractorOperationsPage> => {
-    const params = new URLSearchParams({ limit: "20" });
-    if (cursor) {
-      params.set("cursor", cursor);
-    }
+  const handleLoadExtractorOperations = useCallback(async (id: string, page = 1): Promise<ExtractorOperationsPage> => {
+    const params = new URLSearchParams({ limit: "20", page: String(page) });
 
     const res = await fetch(`/api/extractors/${id}/operations?${params.toString()}`, {
       headers: createBackendHeadersForSession(firebaseSession),
@@ -668,7 +719,6 @@ export default function App() {
     { id: "search", num: 3, label: "Scan Box" },
     { id: "schema", num: 4, label: "Audit Variables" },
     { id: "script", num: 5, label: "Test Sandbox" },
-    { id: "dashboard", num: 6, label: "Stored Tables" },
   ];
 
   return (
@@ -722,15 +772,8 @@ export default function App() {
                   onOpenProfile={handleOpenProfile}
                   onConnectGmail={handleConnectGmail}
                   onRevokeGmail={handleRevokeGmail}
+                  onRequestLogout={() => setIsLogoutConfirmOpen(true)}
                 />
-                <button
-                  onClick={handleLogout}
-                  className="p-2 border border-slate-200 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all cursor-pointer"
-                  title="Switch Auth Account"
-                  id="action-log-out"
-                >
-                  <LogOut className="w-4 h-4" />
-                </button>
               </div>
             ) : (
               <button
@@ -748,7 +791,7 @@ export default function App() {
       </header>
 
       {/* Slide Navigation step bar (Visible when Firebase Auth client config exists) */}
-      {isFirebaseAuthConfigured && firebaseSession && (
+      {isFirebaseAuthConfigured && firebaseSession && isExtractorCreateRoute && (
         <div className="max-w-4xl mx-auto px-4 mt-6">
           <div className="bg-white border border-slate-200 rounded-2xl p-3.5 flex items-center justify-between shadow-xs select-none">
             {stepsList.map((step) => {
@@ -763,8 +806,11 @@ export default function App() {
                   key={step.id}
                   disabled={isLocked || isSearchLocked || isSchemaLocked}
                   onClick={() => {
-                    pushWorkspaceRoute();
+                    pushExtractorCreateRoute();
                     setIsProfileRoute(false);
+                    setIsExtractorCreateRoute(true);
+                    setIsExtractorsRoute(false);
+                    setExtractorIdRoute(null);
                     setCurrentSlide(step.id as any);
                   }}
                   className={`flex flex-col sm:flex-row items-center gap-2 px-3 py-2 rounded-xl transition-all font-bold text-xs ${
@@ -944,6 +990,9 @@ export default function App() {
                 <DashboardSlide
                   extractors={extractors}
                   isLoading={loadingExtractors}
+                  viewMode={isExtractorsRoute ? "list" : "detail"}
+                  selectedExtractorIdFromRoute={extractorIdRoute}
+                  onSelectExtractor={handleOpenExtractorDetail}
                   onRunScan={handleRunScan}
                   onToggleSchedule={handleToggleSchedule}
                   onUpdateWebhook={handleUpdateWebhook}
@@ -989,6 +1038,17 @@ export default function App() {
           </div>
         </footer>
       )}
+
+      <ConfirmActionModal
+        isOpen={isLogoutConfirmOpen}
+        title="Cerrar sesión?"
+        description="Se cerrará la sesión actual y volverás a la pantalla de inicio."
+        confirmLabel="Cerrar sesión"
+        cancelLabel="Cancelar"
+        tone="danger"
+        onConfirm={handleLogout}
+        onCancel={() => setIsLogoutConfirmOpen(false)}
+      />
 
     </div>
   );
