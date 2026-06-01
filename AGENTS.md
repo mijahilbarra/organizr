@@ -92,6 +92,8 @@ npm run tickets:update-state -- --id <ticketId> --state done
 
 Cuando el usuario pida algo como "resuelve los tickets en to-do", primero leer `todo`. Si Codex recoge un ticket, debe cambiarlo inmediatamente a `doing` con `tickets:update-state`, implementar los cambios necesarios y verificar.
 
+Al resolver tickets, Codex no debe crear ramas nuevas. El trabajo de tickets ocurre sobre la rama actual porque Codex puede estar atendiendo varios tickets en paralelo y cambiar de branch destruye el flujo de trabajo compartido. Si la rama actual no parece correcta, detenerse y pedir instruccion explicita antes de tocar git.
+
 Cuando Codex termine la implementacion de un ticket, debe moverlo a `onreview`, resumir lo hecho y pedir explicitamente al usuario que lo revise y lo coloque en `done` si esta conforme. Codex no debe mover tickets terminados a `done` por su cuenta.
 
 Cuando el usuario coloque un ticket en `done` o pida procesar tickets en `done`, Codex debe escanear los cambios locales con `git status --short` y `git diff`, revisar que el scope corresponda al ticket aprobado, correr las verificaciones relevantes, crear un commit descriptivo y subirlo al repo remoto. No mezclar en ese commit cambios no relacionados con el ticket.
