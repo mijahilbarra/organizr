@@ -1,21 +1,20 @@
-import { readDb } from "../../db/readDb";
-import { writeDb } from "../../db/writeDb";
 import { Extractor } from "../../types";
-import { getExtractorIndexById } from "./getExtractorIndexById";
+import { getExtractorByIdForUser } from "./getExtractorByIdForUser";
+import { saveExtractor } from "./saveExtractor";
 
 export async function updateExtractorById(
   id: string,
+  userId: string,
   updateExtractor: (extractor: Extractor) => void,
 ): Promise<Extractor | null> {
-  const dbObj = await readDb();
-  const idx = getExtractorIndexById(dbObj, id);
+  const extractor = await getExtractorByIdForUser(id, userId);
 
-  if (idx === -1) {
+  if (!extractor) {
     return null;
   }
 
-  updateExtractor(dbObj.extractors[idx]);
-  await writeDb(dbObj);
+  updateExtractor(extractor);
+  await saveExtractor(extractor);
 
-  return dbObj.extractors[idx];
+  return extractor;
 }

@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Table, Plus, Trash2, Edit2, CheckCircle2, ChevronRight, Sparkles } from "lucide-react";
+import { Table, Plus, Trash2, ChevronRight, Sparkles, ScrollText } from "lucide-react";
 import { motion } from "motion/react";
 import { SchemaField } from "../../types";
 
@@ -9,6 +9,7 @@ interface SchemaSlideProps {
   schemaFields: SchemaField[];
   setSchemaFields: (fields: SchemaField[]) => void;
   onProceedToScript: () => void;
+  analysisLogs: string[];
 }
 
 /**
@@ -21,6 +22,7 @@ export const SchemaSlide: React.FC<SchemaSlideProps> = ({
   schemaFields,
   setSchemaFields,
   onProceedToScript,
+  analysisLogs,
 }) => {
   const [newFieldName, setNewFieldName] = useState("");
   const [newFieldType, setNewFieldType] = useState("string");
@@ -88,6 +90,20 @@ export const SchemaSlide: React.FC<SchemaSlideProps> = ({
           </p>
         </div>
       </div>
+
+      {analysisLogs.length > 0 && (
+        <div className="bg-slate-950 border border-slate-800 rounded-3xl p-5 shadow-sm space-y-3">
+          <div className="flex items-center gap-2 text-[11px] font-extrabold uppercase tracking-wider text-indigo-200">
+            <ScrollText className="w-3.5 h-3.5" />
+            <span>Gemini Refinement Log</span>
+          </div>
+          <div className="grid gap-1.5 font-mono text-[11px] leading-relaxed text-slate-300 max-h-48 overflow-y-auto" style={{ scrollbarWidth: "thin" }}>
+            {analysisLogs.map((log, index) => (
+              <div key={`${index}-${log}`}>{log}</div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Interactive Blueprint Canvas */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

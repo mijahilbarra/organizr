@@ -13,6 +13,12 @@ import { listExtractors } from "./server/features/extractors/listExtractors";
 import { triggerExtractor } from "./server/features/extractors/triggerExtractor";
 import { toggleSchedule } from "./server/features/extractors/toggleSchedule";
 import { updateWebhook } from "./server/features/extractors/updateWebhook";
+import { getProfile } from "./server/features/profile/getProfile";
+import { updateProfile } from "./server/features/profile/updateProfile";
+import { connectGmail } from "./server/features/profile/connectGmail";
+import { revokeGmail } from "./server/features/profile/revokeGmail";
+import { listExtractorSubjects } from "./server/features/extractors/listExtractorSubjects";
+import { addExtractorSubject } from "./server/features/extractors/addExtractorSubject";
 
 dotenv.config();
 dotenv.config({ path: path.resolve(process.cwd(), "../.env") });
@@ -23,34 +29,54 @@ export const app = express();
 
 app.use(express.json());
 
+const configRoutes = ["/api/config", "/config"];
+const emailRoutes = ["/api/emails", "/emails"];
+const analyzeRoutes = ["/api/analyze", "/analyze"];
+const extractorRoutes = ["/api/extractors", "/extractors"];
+const profileRoutes = ["/api/profile"];
+const authenticatedApiRoutes = [
+  ...emailRoutes,
+  ...analyzeRoutes,
+  ...extractorRoutes,
+  ...profileRoutes,
+];
+
 // API: Check system configurations and credentials
-app.get("/api/config", (_req, res) => {
+app.get(configRoutes, (_req, res) => {
   res.json({
     hasFirebaseProjectId: !!process.env.FIREBASE_PROJECT_ID,
     hasFirebaseAdminCredentials: hasFirebaseAdminCredentials(),
     hasGeminiKey: !!process.env.GEMINI_API_KEY,
     appUrl: process.env.APP_URL || "",
-    firestoreDbCollection: process.env.FIRESTORE_DB_COLLECTION || "organizr",
-    firestoreDbDocumentId: process.env.FIRESTORE_DB_DOCUMENT_ID || "database",
+    firestoreUsersCollection: process.env.FIRESTORE_USERS_COLLECTION || "users",
+    firestoreExtractorsCollection: process.env.FIRESTORE_EXTRACTORS_COLLECTION || "extractors",
   });
 });
 
 // API: Firebase-authenticated application routes
-app.use(["/api/emails", "/api/analyze", "/api/extractors"], requireFirebaseUser);
+app.use(authenticatedApiRoutes, requireFirebaseUser);
+
+// API: Profile and persisted Gmail connection routing
+app.get(profileRoutes, getProfile);
+app.patch(profileRoutes, updateProfile);
+app.post("/api/profile/gmail", connectGmail);
+app.delete("/api/profile/gmail", revokeGmail);
 
 // API: Gmail crawler and lookup endpoints
-app.get("/api/emails", searchEmails);
+app.get(emailRoutes, searchEmails);
 
 // API: Schema intelligence and parsing tests
-app.post("/api/analyze", analyzeEmails);
-app.post("/api/extractors/test", testExtractor);
+app.post(analyzeRoutes, analyzeEmails);
+app.post(["/api/extractors/test", "/extractors/test"], testExtractor);
 
 // API: Extractor lifecycle routing
-app.get("/api/extractors", listExtractors);
-app.post("/api/extractors", createExtractor);
-app.post("/api/extractors/:id/run", triggerExtractor);
-app.post("/api/extractors/:id/schedule", toggleSchedule);
-app.post("/api/extractors/:id/webhook", updateWebhook);
+app.get(extractorRoutes, listExtractors);
+app.post(extractorRoutes, createExtractor);
+app.get(["/api/extractors/:id/subjects", "/extractors/:id/subjects"], listExtractorSubjects);
+app.post(["/api/extractors/:id/subjects", "/extractors/:id/subjects"], addExtractorSubject);
+app.post(["/api/extractors/:id/run", "/extractors/:id/run"], triggerExtractor);
+app.post(["/api/extractors/:id/schedule", "/extractors/:id/schedule"], toggleSchedule);
+app.post(["/api/extractors/:id/webhook", "/extractors/:id/webhook"], updateWebhook);
 
 // Global JSON Error Handler - Ensures backend errors do not crash client with HTML payloads
 app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {

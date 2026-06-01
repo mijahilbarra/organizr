@@ -9,7 +9,7 @@ interface AuthSlideProps {
 
 /**
  * Slide 1: Welcome & Firebase Google Sign-In initiation.
- * Prompts user to authenticate and grant read-only Gmail access.
+ * Prompts user to authenticate and grant read-only Gmail access when needed.
  */
 export const AuthSlide: React.FC<AuthSlideProps> = ({ isLoggingIn, handleConnect }) => {
   return (
@@ -25,7 +25,7 @@ export const AuthSlide: React.FC<AuthSlideProps> = ({ isLoggingIn, handleConnect
       </div>
       
       <h2 className="text-2xl font-extrabold tracking-tight text-slate-900 mb-2 font-sans">
-        Gmail Schema Discovery
+        Organizr
       </h2>
       
       <p className="text-slate-600 text-sm leading-relaxed max-w-sm mx-auto mb-8">
@@ -36,7 +36,7 @@ export const AuthSlide: React.FC<AuthSlideProps> = ({ isLoggingIn, handleConnect
         <ShieldCheck className="w-5 h-5 text-indigo-500 shrink-0 mt-0.5" />
         <div>
           <h4 className="font-bold text-slate-800 mb-0.5">Firebase Auth + Gmail Readonly</h4>
-          This application signs in with Firebase Authentication and requests <strong>only read-only (gmail.readonly)</strong> Gmail permissions for discovery.
+          This application signs in with Firebase Authentication and reuses your saved Gmail connection. It requests <strong>only read-only (gmail.readonly)</strong> permissions when Gmail needs to be connected.
         </div>
       </div>
 

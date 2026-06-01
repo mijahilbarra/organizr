@@ -11,21 +11,36 @@ sequenceDiagram
   participant Frontend as Frontend React
   participant FirebaseAuth as Firebase Auth
   participant GoogleProvider as Google Provider
+  participant Function as Firebase Function api
+  participant Firestore as Firestore
 
   User->>Frontend: Abre la app
   Frontend->>Frontend: Lee configuracion VITE_FIREBASE_*
-  User->>Frontend: Presiona Sign in with Google
+  User->>Frontend: Presiona Sign in with Google o abre menu Usuario, Preferencias, Conectar Gmail
   Frontend->>FirebaseAuth: signInWithPopup(GoogleProvider + gmail.readonly)
   FirebaseAuth->>GoogleProvider: Solicita identidad y scope Gmail readonly
   User->>GoogleProvider: Autoriza cuenta y permisos
   GoogleProvider-->>FirebaseAuth: Devuelve credencial Google
   FirebaseAuth-->>Frontend: Devuelve usuario Firebase
   Frontend->>Frontend: Obtiene Firebase ID token
-  Frontend->>Frontend: Conserva access token Gmail temporal si Google lo entrega
-  Frontend-->>User: Muestra estado autenticado
+  Frontend->>Function: getProfile() con Authorization Firebase
+  Function->>Firestore: Crea o lee users/{uid}
+  Firestore-->>Function: Perfil y estado Gmail
+  Function-->>Frontend: Devuelve perfil sin access token
+  alt Google entrega access token Gmail
+    Frontend->>Function: connectGmail(accessToken) con Authorization Firebase
+    Function->>Firestore: Guarda access token en users/{uid} con expiracion semanal
+    Function-->>Frontend: Devuelve perfil con Gmail conectado
+  end
+  Frontend->>Function: listExtractors() con Authorization Firebase
+  Function->>Firestore: Consulta extractors donde userId = uid
+  Function-->>Frontend: Devuelve extractores
+  Frontend-->>User: Muestra dashboard y opcion de crear extractor
+  User->>Frontend: Abre el menu Avatar y entra a /profile
+  Frontend-->>User: Muestra ProfileSlide fuera del flujo principal
 ```
 
-## Historia 2: Buscar Correos Candidatos
+## Historia 2: Crear Extractor Con Primer Asunto Y Buscar Correos Candidatos
 
 ```mermaid
 sequenceDiagram
@@ -34,16 +49,23 @@ sequenceDiagram
   participant Frontend as Frontend React
   participant Function as Firebase Function api
   participant FirebaseAuth as Firebase Admin Auth
+  participant Firestore as Firestore
   participant Gmail as Gmail API
 
-  User->>Frontend: Escribe asunto o texto de busqueda
-  Frontend->>Function: searchEmails(query) con Authorization Firebase y X-Gmail-Token
+  User->>Frontend: Crea extractor escribiendo el primer asunto del correo
+  Frontend->>Frontend: Guarda el asunto inicial como subjects del extractor en creacion
+  Frontend->>Function: searchEmails(subject) con Authorization Firebase
   Function->>FirebaseAuth: Verifica Firebase ID token
   FirebaseAuth-->>Function: Usuario verificado
-  Function->>Gmail: Busca mensajes candidatos con access token Gmail
+  Function->>Firestore: Lee token Gmail persistido en users/{uid}
+  alt Token activo
+    Function->>Gmail: Busca mensajes candidatos con access token Gmail
+  else Token ausente, revocado o expirado
+    Function-->>Frontend: Solicita reconectar Gmail
+  end
   Gmail-->>Function: Lista de mensajes y metadata
   Function-->>Frontend: Devuelve correos candidatos
-  Frontend-->>User: Muestra resultados para seleccionar
+  Frontend-->>User: Muestra correos candidatos para seleccionar y extraer
 ```
 
 ## Historia 3: Analizar Un Correo Y Proponer Esquema
@@ -63,8 +85,13 @@ sequenceDiagram
   FirebaseAuth-->>Function: Usuario verificado
   Function->>Gemini: Solicita esquema y datos extraidos
   Gemini-->>Function: Esquema propuesto y extraccion inicial
-  Function-->>Frontend: Devuelve propuesta
-  Frontend-->>User: Muestra esquema y datos para revision
+  loop Rebotes de perfeccionamiento
+    Function->>Function: Prueba parser contra correos seleccionados
+    Function->>Gemini: Envia fallos, campos vacios y feedback del parser
+    Gemini-->>Function: Devuelve parser/esquema corregido
+  end
+  Function-->>Frontend: Devuelve propuesta y logs informativos
+  Frontend-->>User: Muestra esquema, datos y log de refinamiento
 ```
 
 ## Historia 4: Ajustar Esquema Antes De Aprobar
@@ -101,7 +128,7 @@ sequenceDiagram
   participant Firestore as Firestore
 
   User->>Frontend: Aprueba esquema
-  Frontend->>Function: createExtractor(schema, initialEmails) con Authorization Firebase
+  Frontend->>Function: createExtractor(schema, subjects, initialEmails) con Authorization Firebase
   Function->>FirebaseAuth: Verifica Firebase ID token
   FirebaseAuth-->>Function: Usuario verificado
   Function->>Gemini: Genera script extractor JS
@@ -109,7 +136,7 @@ sequenceDiagram
   Function->>Function: testExtractor(script, exampleEmails)
 
   alt Extractor valido
-    Function->>Firestore: Guarda extractor y primera extraccion
+    Function->>Firestore: Guarda documento extractors/{extractorId} con userId y primera extraccion
     Function-->>Frontend: Devuelve extractor guardado
     Frontend-->>User: Muestra dashboard con tabla
   else Extractor invalido
@@ -118,7 +145,7 @@ sequenceDiagram
   end
 ```
 
-## Historia 6: Ejecutar Extractor Existente
+## Historia 6: Ejecutar Extractor Existente Y Agregar Asuntos
 
 ```mermaid
 sequenceDiagram
@@ -129,17 +156,38 @@ sequenceDiagram
   participant FirebaseAuth as Firebase Admin Auth
   participant Firestore as Firestore
   participant Gmail as Gmail API
+  participant Gemini as Gemini API
 
-  User->>Frontend: Ejecuta extractor o agrega correos
-  Frontend->>Function: triggerExtractor(extractorId) con Authorization Firebase y X-Gmail-Token
+  User->>Frontend: Agrega un nuevo asunto al extractor existente
+  Frontend->>Function: addExtractorSubject(extractorId, subject) con Authorization Firebase
   Function->>FirebaseAuth: Verifica Firebase ID token
   FirebaseAuth-->>Function: Usuario verificado
-  Function->>Firestore: Lee extractor y ultima ejecucion
-  Firestore-->>Function: Configuracion del extractor
-  Function->>Gmail: Obtiene correos relacionados con access token Gmail
+  Function->>Firestore: Lee extractors/{extractorId} y valida userId
+  Function->>Firestore: Lee token Gmail persistido en users/{uid}
+  Function->>Gmail: Busca correos candidatos por el nuevo subject
+  Gmail-->>Function: Devuelve correos candidatos
+  Function->>Gemini: Extrae datos usando solo el esquema actual del extractor
+  Gemini-->>Function: Devuelve datos estructurados por email
+  Function->>Firestore: Actualiza el documento del extractor con subject y nuevas extracciones
+  Function-->>Frontend: Devuelve extractor actualizado y conteo extraido
+  Frontend-->>User: Muestra subject registrado y filas nuevas en la tabla
+
+  User->>Frontend: Ejecuta extractor o sincroniza correos
+  Frontend->>Function: triggerExtractor(extractorId) con Authorization Firebase
+  Function->>FirebaseAuth: Verifica Firebase ID token
+  FirebaseAuth-->>Function: Usuario verificado
+  Function->>Firestore: Lee extractors/{extractorId}, valida userId y lee token Gmail
+  Firestore-->>Function: Configuracion del extractor compartido
+  alt Token Gmail activo
+    loop Por cada asunto registrado
+      Function->>Gmail: Busca correos por subject con access token Gmail
+    end
+  else Token ausente, revocado o expirado
+    Function-->>Frontend: Solicita reconectar Gmail
+  end
   Gmail-->>Function: Correos nuevos
   Function->>Function: Ejecuta script extractor
-  Function->>Firestore: Guarda extracciones nuevas
+  Function->>Firestore: Actualiza extractors/{extractorId} con extracciones nuevas
   Function-->>Frontend: Devuelve resultados
   Frontend-->>User: Actualiza tabla
 ```
@@ -160,7 +208,7 @@ sequenceDiagram
   Frontend->>Function: updateWebhook(extractorId, url) con Authorization Firebase
   Function->>FirebaseAuth: Verifica Firebase ID token
   FirebaseAuth-->>Function: Usuario verificado
-  Function->>Firestore: Guarda configuracion webhook
+  Function->>Firestore: Actualiza extractors/{extractorId} tras validar userId
   Function-->>Frontend: Confirma configuracion
   Frontend-->>User: Muestra webhook activo
 
@@ -168,14 +216,13 @@ sequenceDiagram
   Frontend->>Function: sendToWebhook(extractorId, extractionId) con Authorization Firebase
   Function->>FirebaseAuth: Verifica Firebase ID token
   FirebaseAuth-->>Function: Usuario verificado
-  Function->>Firestore: Lee extraccion y webhook
+  Function->>Firestore: Lee extractors/{extractorId}, valida userId y obtiene extraccion/webhook
   Firestore-->>Function: Datos extraidos y URL
   Function->>Webhook: Envia datos extraidos
   Webhook-->>Function: Respuesta del endpoint
   Function-->>Frontend: Devuelve estado de envio
   Frontend-->>User: Muestra resultado del envio
 ```
-
 
 ## Historia 8: Gestionar Tickets En Kanban
 
@@ -207,4 +254,37 @@ sequenceDiagram
   Codex->>AdminScript: npm run tickets:create o tickets:update-state
   AdminScript->>Firestore: Crea ticket como codex o cambia state
   Firestore-->>Frontend: Notifica snapshot actualizado
+```
+
+## Historia 9: Ver Perfil, Actualizar Datos Y Revocar Gmail
+
+```mermaid
+sequenceDiagram
+  autonumber
+  actor User as Usuario
+  participant Frontend as Frontend React
+  participant Function as Firebase Function api
+  participant FirebaseAuth as Firebase Admin Auth
+  participant Firestore as Firestore
+  participant GoogleOAuth as Google OAuth
+
+  User->>Frontend: Abre Profile
+  Frontend->>Function: getProfile() con Authorization Firebase
+  Function->>FirebaseAuth: Verifica Firebase ID token
+  FirebaseAuth-->>Function: Usuario verificado
+  Function->>Firestore: Lee users/{uid}
+  Function-->>Frontend: Devuelve perfil sin access token
+  Frontend-->>User: Muestra datos y estado Gmail
+
+  User->>Frontend: Actualiza nombre o foto
+  Frontend->>Function: updateProfile(displayName, photoURL)
+  Function->>Firestore: Guarda perfil actualizado en users/{uid}
+  Function-->>Frontend: Devuelve perfil actualizado
+
+  User->>Frontend: Revoca Gmail
+  Frontend->>Function: revokeGmail()
+  Function->>Firestore: Lee access token persistido en users/{uid}
+  Function->>GoogleOAuth: Revoca access token
+  Function->>Firestore: Elimina conexion Gmail en users/{uid}
+  Function-->>Frontend: Devuelve perfil sin Gmail conectado
 ```

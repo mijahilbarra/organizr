@@ -1,7 +1,7 @@
 import React, { useState } from "react";
-import { Play, Calendar, Globe, Table, SlidersHorizontal, Loader2, ArrowRightLeft, AlignLeft, Check, Copy } from "lucide-react";
+import { Play, Calendar, Globe, Table, SlidersHorizontal, Loader2, Plus, Tags } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
-import { Extractor, ExtractionRecord } from "../../types";
+import { AddExtractorSubjectResponse, Extractor, ExtractionRecord } from "../../types";
 
 interface DashboardSlideProps {
   extractors: Extractor[];
@@ -9,6 +9,8 @@ interface DashboardSlideProps {
   onRunScan: (id: string) => Promise<void>;
   onToggleSchedule: (id: string, enabled: boolean) => Promise<void>;
   onUpdateWebhook: (id: string, url: string) => Promise<void>;
+  onAddSubject: (id: string, subject: string) => Promise<AddExtractorSubjectResponse>;
+  onCreateExtractor: () => void;
 }
 
 /**
@@ -22,6 +24,8 @@ export const DashboardSlide: React.FC<DashboardSlideProps> = ({
   onRunScan,
   onToggleSchedule,
   onUpdateWebhook,
+  onAddSubject,
+  onCreateExtractor,
 }) => {
   const [selectedExtractorId, setSelectedExtractorId] = useState<string | null>(
     extractors.length > 0 ? extractors[0].id : null
@@ -31,6 +35,9 @@ export const DashboardSlide: React.FC<DashboardSlideProps> = ({
   const [editingWebhookId, setEditingWebhookId] = useState<string | null>(null);
   const [tempWebhookUrl, setTempWebhookUrl] = useState("");
   const [isSavingWebhook, setIsSavingWebhook] = useState(false);
+  const [newSubjectValue, setNewSubjectValue] = useState("");
+  const [isSavingSubject, setIsSavingSubject] = useState(false);
+  const [subjectFeedback, setSubjectFeedback] = useState("");
 
   // Syncing states for specific rows
   const [syncingIds, setSyncingIds] = useState<Set<string>>(new Set());
@@ -72,6 +79,24 @@ export const DashboardSlide: React.FC<DashboardSlideProps> = ({
     }
   };
 
+  const handleSubjectSubmit = async (e: React.FormEvent, id: string) => {
+    e.preventDefault();
+    const subject = newSubjectValue.trim();
+    if (!subject) return;
+
+    try {
+      setIsSavingSubject(true);
+      setSubjectFeedback("Searching Gmail, running Gemini, and extracting with the current schema...");
+      const result = await onAddSubject(id, subject);
+      setNewSubjectValue("");
+      setSubjectFeedback(result.message);
+    } catch (err: any) {
+      setSubjectFeedback(err.message || "Subject registration failed.");
+    } finally {
+      setIsSavingSubject(false);
+    }
+  };
+
   // If no initial selected id but extractors loaded, bind the first one
   if (extractors.length > 0 && !selectedExtractorId) {
     setSelectedExtractorId(extractors[0].id);
@@ -81,14 +106,38 @@ export const DashboardSlide: React.FC<DashboardSlideProps> = ({
 
   return (
     <div className="space-y-6" id="dashboard-workbench">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div>
+          <h2 className="text-xl font-extrabold text-slate-900">Extraction Dashboard</h2>
+          <p className="text-xs text-slate-500 font-semibold mt-1">
+            {isLoading ? "Loading saved extractors..." : `${extractors.length} saved extractors available.`}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onCreateExtractor}
+          className="inline-flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 border border-indigo-700 text-white font-bold text-xs rounded-xl px-4 py-2.5 cursor-pointer shadow-sm"
+        >
+          <Plus className="w-4 h-4" />
+          <span>New Extractor</span>
+        </button>
+      </div>
       
       {extractors.length === 0 ? (
-        <div className="max-w-md mx-auto text-center py-16 bg-white border border-slate-200 rounded-3xl p-8" id="empty-dashboard">
+        <div className="max-w-md mx-auto text-center py-16 bg-white border border-slate-200 rounded-2xl p-8" id="empty-dashboard">
           <Table className="w-10 h-10 text-slate-300 mx-auto mb-4" />
           <h3 className="text-base font-bold text-slate-800 mb-1">No Extractors Configured</h3>
           <p className="text-slate-500 text-xs mb-6 max-w-xs mx-auto">
-            You don't have active parsing rules yet. Search and save a template first to unlock.
+            You don't have active parsing rules yet. Create a template from Gmail search results.
           </p>
+          <button
+            type="button"
+            onClick={onCreateExtractor}
+            className="inline-flex items-center justify-center gap-2 bg-slate-900 hover:bg-black border border-slate-950 text-white font-bold text-xs rounded-xl px-4 py-2.5 cursor-pointer"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Create extractor</span>
+          </button>
         </div>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -104,6 +153,7 @@ export const DashboardSlide: React.FC<DashboardSlideProps> = ({
                 const isSelected = ext.id === selectedExtractorId;
                 const isSyncing = syncingIds.has(ext.id);
                 const feedback = syncFeedback[ext.id];
+                const registeredSubjects = ext.subjects?.length ? ext.subjects : [{ id: `${ext.id}-legacy-query`, value: ext.query }];
 
                 return (
                   <div
@@ -127,7 +177,9 @@ export const DashboardSlide: React.FC<DashboardSlideProps> = ({
                       </div>
                       <div>
                         <h4 className="text-sm font-bold text-slate-800 line-clamp-1">{ext.name}</h4>
-                        <p className="text-[11px] text-slate-500 mt-0.5">Query: subject:"{ext.query}"</p>
+                        <p className="text-[11px] text-slate-500 mt-0.5">
+                          {registeredSubjects.length} subject{registeredSubjects.length === 1 ? "" : "s"} registered
+                        </p>
                       </div>
                     </div>
 
@@ -178,6 +230,56 @@ export const DashboardSlide: React.FC<DashboardSlideProps> = ({
                   exit={{ opacity: 0, y: -10 }}
                   className="space-y-6"
                 >
+                  <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm space-y-4">
+                    <div className="flex flex-col sm:flex-row justify-between items-start gap-3">
+                      <div>
+                        <h3 className="text-sm font-extrabold text-slate-800 flex items-center gap-2">
+                          <Tags className="w-4 h-4 text-indigo-500" /> Registered Subjects
+                        </h3>
+                        <p className="text-slate-555 text-xs leading-relaxed mt-1">
+                          These subject searches share this extractor schema and parsed dataset.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap gap-2">
+                      {(selectedExtractor.subjects?.length
+                        ? selectedExtractor.subjects
+                        : [{ id: `${selectedExtractor.id}-legacy-query`, value: selectedExtractor.query }]
+                      ).map((subject) => (
+                        <span
+                          key={subject.id}
+                          className="inline-flex max-w-full items-center rounded-lg border border-indigo-100 bg-indigo-50 px-2.5 py-1 text-[11px] font-bold text-indigo-700"
+                          title={subject.value}
+                        >
+                          <span className="truncate">subject:"{subject.value}"</span>
+                        </span>
+                      ))}
+                    </div>
+
+                    <form onSubmit={(e) => handleSubjectSubmit(e, selectedExtractor.id)} className="flex flex-col sm:flex-row gap-2">
+                      <input
+                        type="text"
+                        value={newSubjectValue}
+                        onChange={(e) => setNewSubjectValue(e.target.value)}
+                        placeholder="Add subject and extract matching emails"
+                        className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-indigo-105"
+                      />
+                      <button
+                        type="submit"
+                        disabled={isSavingSubject || !newSubjectValue.trim()}
+                        className="bg-slate-900 border border-slate-950 hover:bg-black disabled:opacity-50 font-bold text-xs text-white rounded-xl px-4 py-2 cursor-pointer select-none inline-flex items-center justify-center gap-1.5"
+                      >
+                        {isSavingSubject ? <Loader2 className="w-3 h-3 animate-spin" /> : <Plus className="w-3 h-3" />}
+                        <span>{isSavingSubject ? "Extracting" : "Add & Extract"}</span>
+                      </button>
+                    </form>
+
+                    {subjectFeedback && (
+                      <p className="text-[11px] font-bold text-slate-500">{subjectFeedback}</p>
+                    )}
+                  </div>
+
                   {/* Webhook integrator card */}
                   <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm space-y-3">
                     <h3 className="text-sm font-extrabold text-slate-800 flex items-center gap-2">

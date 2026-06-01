@@ -1,14 +1,19 @@
 import { Request, Response } from "express";
-import { readDb } from "../../db/readDb";
-import { writeDb } from "../../db/writeDb";
 import { Extractor, ExtractionRecord } from "../../types";
+import { loadRequiredFirebaseUserFromRequest } from "../auth/loadRequiredFirebaseUserFromRequest";
 import { sendToWebhook } from "./sendToWebhook";
+import { createExtractorSubject } from "./createExtractorSubject";
+import { getUniqueSubjectValues } from "./getUniqueSubjectValues";
+import { saveExtractor } from "./saveExtractor";
 
 /**
  * Creates and persists a new email extractor containing layout descriptions,
  * parsing routines, and initial matching message extractions.
  */
 export async function createExtractor(req: Request, res: Response) {
+  const firebaseUser = loadRequiredFirebaseUserFromRequest(req, res);
+  if (!firebaseUser) return;
+
   const {
     name,
     query,
@@ -17,6 +22,7 @@ export async function createExtractor(req: Request, res: Response) {
     scriptCode,
     aiScriptCode,
     schemaFields,
+    subjects,
     webhookUrl,
     enabledSchedule,
     initialEmails,
@@ -28,10 +34,12 @@ export async function createExtractor(req: Request, res: Response) {
   }
 
   try {
-    const dbObj = await readDb();
-
     // Create unique ID
     const extractorId = `ext_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const subjectValues = getUniqueSubjectValues([
+      ...(Array.isArray(subjects) ? subjects : []),
+      query,
+    ]);
 
     // Build initial extractions from results
     const extractions: ExtractionRecord[] = [];
@@ -60,8 +68,10 @@ export async function createExtractor(req: Request, res: Response) {
 
     const newExtractor: Extractor = {
       id: extractorId,
+      userId: firebaseUser.uid,
       name,
-      query,
+      query: subjectValues[0] || query,
+      subjects: subjectValues.map(createExtractorSubject),
       detectedType: detectedType || "Custom",
       explanation: explanation || "",
       scriptCode,
@@ -74,8 +84,7 @@ export async function createExtractor(req: Request, res: Response) {
       createdAt: new Date().toISOString(),
     };
 
-    dbObj.extractors.push(newExtractor);
-    await writeDb(dbObj);
+    await saveExtractor(newExtractor);
 
     // If webhook configured, push initial records to webhook asynchronously
     if (newExtractor.webhookUrl && extractions.length > 0) {

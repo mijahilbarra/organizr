@@ -3,8 +3,8 @@ export interface EmailConfig {
   hasFirebaseAdminCredentials: boolean;
   hasGeminiKey: boolean;
   appUrl: string;
-  firestoreDbCollection: string;
-  firestoreDbDocumentId: string;
+  firestoreUsersCollection: string;
+  firestoreExtractorsCollection: string;
 }
 
 export interface EmailMessage {
@@ -36,20 +36,31 @@ export interface AnalysisResponse {
   scriptCode: string;
   aiScriptCode: string;
   sampleExtractedResults: SampleExtractionResult[];
+  debugLogs?: string[];
 }
 
 export interface ExtractionRecord {
   id: string;
+  emailId?: string;
   subject: string;
   from: string;
   date: string;
   extractedData: Record<string, any>;
 }
 
+export interface ExtractorSubject {
+  id: string;
+  value: string;
+  createdAt: string;
+  lastScannedAt?: string;
+}
+
 export interface Extractor {
   id: string;
+  userId: string;
   name: string;
   query: string;
+  subjects: ExtractorSubject[];
   detectedType: string;
   explanation: string;
   scriptCode: string;
@@ -58,6 +69,27 @@ export interface Extractor {
   enabledSchedule: boolean;
   webhookUrl?: string;
   extractions: ExtractionRecord[];
+}
+
+export interface AddExtractorSubjectResponse {
+  extractor: Extractor;
+  newCount: number;
+  scannedCount: number;
+  message: string;
+}
+
+export interface UserProfile {
+  uid: string;
+  email: string;
+  displayName: string;
+  photoURL: string;
+  createdAt: string;
+  updatedAt: string;
+  gmailConnection: null | {
+    connectedAt: string;
+    expiresAt: string;
+    revokedAt?: string;
+  };
 }
 
 export type TicketState = "backlog" | "todo" | "doing" | "onreview" | "done";

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { Mail, Key, Sparkles, SlidersHorizontal, AlertCircle, RefreshCw, Cpu, LogOut, CheckCircle2, Bug } from "lucide-react";
-import { EmailMessage, AnalysisResponse, SchemaField, Extractor } from "./types";
+import { Key, AlertCircle, RefreshCw, Cpu, LogOut, PlusCircle, Bug } from "lucide-react";
+import { EmailMessage, AnalysisResponse, SchemaField, Extractor, UserProfile, AddExtractorSubjectResponse } from "./types";
 import { createBackendHeadersForSession } from "./firebase/createBackendHeadersForSession";
 import type { FirebaseAuthSession } from "./firebase/FirebaseAuthSession";
 import { hasFirebaseConfig } from "./firebase/hasFirebaseConfig";
@@ -11,11 +11,18 @@ import { subscribeToFirebaseUser } from "./firebase/subscribeToFirebaseUser";
 
 // Import modular feature slide components (each function/component in its own file)
 import { AuthSlide } from "./features/auth/AuthSlide";
+import { CreateExtractorSlide } from "./features/create/CreateExtractorSlide";
 import { SearchSlide } from "./features/search/SearchSlide";
 import { toggleStringSetValue } from "./features/search/toggleStringSetValue";
 import { SchemaSlide } from "./features/schema/SchemaSlide";
 import { ScriptSlide } from "./features/script/ScriptSlide";
 import { DashboardSlide } from "./features/dashboard/DashboardSlide";
+import { ProfileSlide } from "./features/profile/ProfileSlide";
+import { UserAccountMenu } from "./features/profile/UserAccountMenu";
+import { isProfileRoutePath } from "./features/profile/isProfileRoutePath";
+import { pushProfileRoute } from "./features/profile/pushProfileRoute";
+import { pushWorkspaceRoute } from "./features/profile/pushWorkspaceRoute";
+import { postExtractorUpdate } from "./features/dashboard/postExtractorUpdate";
 import { TicketsSlide } from "./features/tickets/TicketsSlide";
 
 export default function App() {
@@ -26,12 +33,16 @@ export default function App() {
   // Firebase authentication states
   const [firebaseSession, setFirebaseSession] = useState<FirebaseAuthSession | null>(null);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [isProfileRoute, setIsProfileRoute] = useState(isProfileRoutePath(window.location.pathname));
 
   // Active Wizard flow navigation
-  const [currentSlide, setCurrentSlide] = useState<"auth" | "search" | "schema" | "script" | "dashboard" | "tickets">("auth");
+  const [currentSlide, setCurrentSlide] = useState<"auth" | "create" | "search" | "schema" | "script" | "dashboard" | "tickets">("auth");
 
   // Crawling States
   const [subjectInput, setSubjectInput] = useState("");
+  const [draftSubjects, setDraftSubjects] = useState<string[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [emails, setEmails] = useState<EmailMessage[]>([]);
   const [selectedEmailIds, setSelectedEmailIds] = useState<Set<string>>(new Set());
@@ -40,6 +51,7 @@ export default function App() {
   // Analyzing States
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<AnalysisResponse | null>(null);
+  const [analysisLogs, setAnalysisLogs] = useState<string[]>([]);
   const [schemaFields, setSchemaFields] = useState<SchemaField[]>([]);
   const [scriptCode, setScriptCode] = useState("");
 
@@ -95,8 +107,52 @@ export default function App() {
     }
   };
 
+  const fetchProfile = async (activeSession: FirebaseAuthSession) => {
+    const res = await fetch("/api/profile", {
+      headers: createBackendHeadersForSession(activeSession),
+    });
+
+    if (!res.ok) {
+      const errObj = await res.json();
+      throw new Error(errObj.error || "Failed to load profile.");
+    }
+
+    const data = await res.json();
+    setUserProfile(data.profile || null);
+    return data.profile as UserProfile;
+  };
+
+  const persistGmailConnection = async (activeSession: FirebaseAuthSession, accessToken: string) => {
+    const res = await fetch("/api/profile/gmail", {
+      method: "POST",
+      headers: createBackendHeadersForSession(activeSession, true),
+      body: JSON.stringify({ accessToken }),
+    });
+
+    if (!res.ok) {
+      const errObj = await res.json();
+      throw new Error(errObj.error || "Failed to persist Gmail connection.");
+    }
+
+    const data = await res.json();
+    setUserProfile(data.profile || null);
+    return data.profile as UserProfile;
+  };
+
   useEffect(() => {
     fetchConfig();
+  }, []);
+
+  useEffect(() => {
+    const syncProfileRoute = () => {
+      setIsProfileRoute(isProfileRoutePath(window.location.pathname));
+    };
+
+    window.addEventListener("popstate", syncProfileRoute);
+
+    return () => {
+      window.removeEventListener("popstate", syncProfileRoute);
+    };
   }, []);
 
   useEffect(() => {
@@ -110,9 +166,13 @@ export default function App() {
           return null;
         }
 
+        const persistedGmailAccessToken = currentSession?.user.uid === session.user.uid
+          ? currentSession.gmailAccessToken
+          : null;
+
         return {
           ...session,
-          gmailAccessToken: currentSession?.gmailAccessToken || session.gmailAccessToken,
+          gmailAccessToken: persistedGmailAccessToken || session.gmailAccessToken,
         };
       });
       setIsLoggingIn(false);
@@ -123,13 +183,17 @@ export default function App() {
   useEffect(() => {
     if (firebaseSession) {
       fetchExtractors(firebaseSession);
-      // Auto transition to searching templates
+      fetchProfile(firebaseSession).catch((err) => {
+        console.error("Profile synchronizer exception:", err);
+      });
+      // Auto transition to saved extractors after login
       if (currentSlide === "auth") {
-        setCurrentSlide("search");
+        setCurrentSlide("dashboard");
       }
     } else {
       setCurrentSlide("auth");
       setExtractors([]);
+      setUserProfile(null);
     }
   }, [firebaseSession]);
 
@@ -140,10 +204,92 @@ export default function App() {
     try {
       const session = await signInWithGoogle();
       setFirebaseSession(session);
+      await fetchProfile(session);
+      if (session.gmailAccessToken) {
+        await persistGmailConnection(session, session.gmailAccessToken);
+      }
+      await fetchExtractors(session);
+      setCurrentSlide("dashboard");
     } catch (err: any) {
       setErrorText(err.message || "Failed to sign in with Firebase Google provider.");
       setIsLoggingIn(false);
     }
+  };
+
+  const handleConnectGmail = async () => {
+    setIsSavingProfile(true);
+    setErrorText(null);
+    try {
+      const session = await signInWithGoogle();
+      setFirebaseSession(session);
+      if (!session.gmailAccessToken) {
+        throw new Error("Google did not return a Gmail access token. Please approve Gmail readonly access.");
+      }
+      await persistGmailConnection(session, session.gmailAccessToken);
+    } catch (err: any) {
+      setErrorText(err.message || "Failed to connect Gmail.");
+    } finally {
+      setIsSavingProfile(false);
+      setIsLoggingIn(false);
+    }
+  };
+
+  const handleUpdateProfile = async (updates: { displayName: string; photoURL: string }) => {
+    setIsSavingProfile(true);
+    setErrorText(null);
+    try {
+      const res = await fetch("/api/profile", {
+        method: "PATCH",
+        headers: createBackendHeadersForSession(firebaseSession, true),
+        body: JSON.stringify(updates),
+      });
+
+      if (!res.ok) {
+        const errObj = await res.json();
+        throw new Error(errObj.error || "Failed to update profile.");
+      }
+
+      const data = await res.json();
+      setUserProfile(data.profile || null);
+    } catch (err: any) {
+      setErrorText(err.message || "Failed to update profile.");
+    } finally {
+      setIsSavingProfile(false);
+    }
+  };
+
+  const handleRevokeGmail = async () => {
+    setIsSavingProfile(true);
+    setErrorText(null);
+    try {
+      const res = await fetch("/api/profile/gmail", {
+        method: "DELETE",
+        headers: createBackendHeadersForSession(firebaseSession),
+      });
+
+      if (!res.ok) {
+        const errObj = await res.json();
+        throw new Error(errObj.error || "Failed to revoke Gmail.");
+      }
+
+      const data = await res.json();
+      setUserProfile(data.profile || null);
+      setFirebaseSession((currentSession) => currentSession ? { ...currentSession, gmailAccessToken: null } : null);
+    } catch (err: any) {
+      setErrorText(err.message || "Failed to revoke Gmail.");
+    } finally {
+      setIsSavingProfile(false);
+    }
+  };
+
+  const resetAnalysisDraft = () => {
+    setDraftSubjects([]);
+    setSelectedEmailIds(new Set());
+    setExpandedEmailIds(new Set());
+    setAnalysisResult(null);
+    setAnalysisLogs([]);
+    setSchemaFields([]);
+    setScriptCode("");
   };
 
   const handleLogout = async () => {
@@ -153,29 +299,53 @@ export default function App() {
       console.error("Firebase sign out failed:", err);
     }
 
-    setFirebaseSession(null);
+      setFirebaseSession(null);
+      setEmails([]);
+      setSubjectInput("");
+      resetAnalysisDraft();
+      pushWorkspaceRoute();
+      setIsProfileRoute(false);
+      setCurrentSlide("auth");
+  };
+
+  const resetExtractorCreation = () => {
+    setSubjectInput("");
     setEmails([]);
-    setSelectedEmailIds(new Set());
-    setExpandedEmailIds(new Set());
-    setAnalysisResult(null);
-    setSchemaFields([]);
-    setScriptCode("");
-    setCurrentSlide("auth");
+    resetAnalysisDraft();
+    setErrorText(null);
+    pushWorkspaceRoute();
+    setIsProfileRoute(false);
+    setCurrentSlide("create");
+  };
+
+  const handleOpenProfile = () => {
+    pushProfileRoute();
+    setIsProfileRoute(true);
+  };
+
+  const handleOpenWorkspaceSlide = (slide: "dashboard" | "tickets") => {
+    pushWorkspaceRoute();
+    setIsProfileRoute(false);
+    setCurrentSlide(slide);
   };
 
   // Gmail Lookup Crawling logic
-  const handleSearch = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!subjectInput.trim()) return;
+  const handleSearch = async (e?: React.FormEvent, subjectOverride?: string) => {
+    e?.preventDefault();
+    const activeSubject = (subjectOverride ?? subjectInput).trim();
+    if (!activeSubject) return;
 
     try {
       setIsSearching(true);
       setErrorText(null);
+      setSubjectInput(activeSubject);
+      setDraftSubjects([activeSubject]);
       setAnalysisResult(null);
+      setAnalysisLogs([]);
       setSelectedEmailIds(new Set());
       setExpandedEmailIds(new Set());
 
-      const res = await fetch(`/api/emails?subject=${encodeURIComponent(subjectInput.trim())}`, {
+      const res = await fetch(`/api/emails?subject=${encodeURIComponent(activeSubject)}`, {
         headers: createBackendHeadersForSession(firebaseSession),
       });
 
@@ -188,8 +358,8 @@ export default function App() {
 
       if (!res.ok) {
         if (res.status === 401) {
-          await handleLogout();
-          throw new Error("Your Firebase session has expired. Please authenticate with Google again.");
+          const errData = await res.json();
+          throw new Error(errData.error || "Connect Gmail before searching messages.");
         }
         const errData = await res.json();
         throw new Error(errData.error || "Failed to retrieve matching Gmail messages.");
@@ -213,6 +383,19 @@ export default function App() {
     }
   };
 
+  const handleStartExtractorCreation = async (subject: string) => {
+    const initialSubject = subject.trim();
+
+    if (!initialSubject) {
+      return;
+    }
+
+    setSubjectInput(initialSubject);
+    setDraftSubjects([initialSubject]);
+    setCurrentSlide("search");
+    await handleSearch(undefined, initialSubject);
+  };
+
   // Gemini Analytical Schema propose logic
   const handleAnalyze = async () => {
     if (selectedEmailIds.size === 0) return;
@@ -221,6 +404,10 @@ export default function App() {
       setIsAnalyzing(true);
       setErrorText(null);
       setAnalysisResult(null);
+      setAnalysisLogs([
+        "[Gemini Schema] Preparing selected email samples for schema discovery.",
+        "[Gemini Schema] Waiting for Gemini to draft fields and parser code.",
+      ]);
 
       const targetEmails = emails.filter((mail) => selectedEmailIds.has(mail.id));
 
@@ -243,10 +430,15 @@ export default function App() {
 
       const data: AnalysisResponse = await res.json();
       setAnalysisResult(data);
+      setAnalysisLogs(data.debugLogs || []);
       setSchemaFields(data.schemaFields || []);
       setScriptCode(data.scriptCode || "");
       setCurrentSlide("schema");
     } catch (err: any) {
+      setAnalysisLogs((currentLogs) => [
+        ...currentLogs,
+        `[Gemini Schema] Analysis failed: ${err.message || "unknown error"}`,
+      ]);
       setErrorText(err.message || "Analytical engine crashed.");
     } finally {
       setIsAnalyzing(false);
@@ -262,7 +454,8 @@ export default function App() {
 
       const payload = {
         name,
-        query: subjectInput,
+        query: draftSubjects[0] || subjectInput,
+        subjects: draftSubjects,
         detectedType: analysisResult.detectedType,
         explanation: analysisResult.explanation,
         scriptCode,
@@ -353,24 +546,30 @@ export default function App() {
 
   // Configure Webhook URL configurations
   const handleUpdateWebhook = async (id: string, webhookUrl: string) => {
-    try {
-      const res = await fetch(`/api/extractors/${id}/webhook`, {
-        method: "POST",
-        headers: createBackendHeadersForSession(firebaseSession, true),
-        body: JSON.stringify({ webhookUrl }),
-      });
+    const updated = await postExtractorUpdate(
+      firebaseSession,
+      `/api/extractors/${id}/webhook`,
+      { webhookUrl },
+      "Failed to configure webhook destination.",
+    );
+    setExtractors((prev) => prev.map((e) => (e.id === id ? updated : e)));
+  };
 
-      if (!res.ok) {
-        const errObj = await res.json();
-        throw new Error(errObj.error || "Failed to configure webhook destination.");
-      }
+  const handleAddExtractorSubject = async (id: string, subject: string) => {
+    const res = await fetch(`/api/extractors/${id}/subjects`, {
+      method: "POST",
+      headers: createBackendHeadersForSession(firebaseSession, true),
+      body: JSON.stringify({ subject }),
+    });
 
-      const updated = await res.json();
-      setExtractors((prev) => prev.map((e) => (e.id === id ? updated : e)));
-    } catch (err: any) {
-      console.error(err);
-      throw err;
+    if (!res.ok) {
+      const errObj = await res.json();
+      throw new Error(errObj.error || "Failed to register and extract subject.");
     }
+
+    const result = await res.json() as AddExtractorSubjectResponse;
+    setExtractors((prev) => prev.map((e) => (e.id === id ? result.extractor : e)));
+    return result;
   };
 
   const copyToClipboard = (text: string) => {
@@ -408,14 +607,14 @@ export default function App() {
   }
 
   const isFirebaseAuthConfigured = hasFirebaseConfig();
-
   // Flow wizard steps definitions
   const stepsList = [
     { id: "auth", num: 1, label: "Authorize" },
-    { id: "search", num: 2, label: "Scan Box" },
-    { id: "schema", num: 3, label: "Audit Variables" },
-    { id: "script", num: 4, label: "Test Sandbox" },
-    { id: "dashboard", num: 5, label: "Stored Tables" },
+    { id: "create", num: 2, label: "Create" },
+    { id: "search", num: 3, label: "Scan Box" },
+    { id: "schema", num: 4, label: "Audit Variables" },
+    { id: "script", num: 5, label: "Test Sandbox" },
+    { id: "dashboard", num: 6, label: "Stored Tables" },
   ];
 
   return (
@@ -427,11 +626,11 @@ export default function App() {
           
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-gradient-to-tr from-indigo-600 to-purple-600 rounded-2xl flex items-center justify-center text-white font-black text-lg shadow-sm">
-              G
+              O
             </div>
             <div>
               <h1 className="font-extrabold text-slate-800 tracking-tight text-base sm:text-lg flex items-center gap-1.5">
-                Gmail Schema Extractor
+                Organizr
                 <span className="text-[10px] bg-slate-100 text-slate-550 border border-slate-200 px-2 py-0.5 rounded-full uppercase tracking-wider font-bold">
                   v1.2.0
                 </span>
@@ -443,15 +642,33 @@ export default function App() {
             {firebaseSession ? (
               <div className="flex items-center gap-3">
                 <button
-                  onClick={() => setCurrentSlide("dashboard")}
+                  onClick={resetExtractorCreation}
+                  className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer border flex items-center gap-1.5 ${
+                    currentSlide === "create"
+                      ? "bg-indigo-600 border-indigo-600 text-white shadow-sm"
+                      : "bg-white border-slate-200 text-slate-655 hover:bg-slate-50"
+                  }`}
+                >
+                  <PlusCircle className="w-3.5 h-3.5" />
+                  <span>New Extractor</span>
+                </button>
+                <button
+                  onClick={() => handleOpenWorkspaceSlide("dashboard")}
                   className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer border ${
-                    currentSlide === "dashboard"
+                    !isProfileRoute && currentSlide === "dashboard"
                       ? "bg-slate-900 border-slate-950 text-white shadow-sm"
                       : "bg-white border-slate-200 text-slate-655 hover:bg-slate-50"
                   }`}
                 >
                   Extraction Dashboard ({extractors.length})
                 </button>
+                <UserAccountMenu
+                  profile={userProfile}
+                  isSaving={isSavingProfile}
+                  onOpenProfile={handleOpenProfile}
+                  onConnectGmail={handleConnectGmail}
+                  onRevokeGmail={handleRevokeGmail}
+                />
                 <button
                   onClick={handleLogout}
                   className="p-2 border border-slate-200 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all cursor-pointer"
@@ -479,13 +696,18 @@ export default function App() {
               const isActive = currentSlide === step.id;
               const isPassed = stepsList.findIndex((s) => s.id === currentSlide) > stepsList.findIndex((s) => s.id === step.id);
               const isLocked = !firebaseSession && step.id !== "auth";
+              const isSearchLocked = !subjectInput && step.id === "search";
               const isSchemaLocked = !analysisResult && (step.id === "schema" || step.id === "script");
 
               return (
                 <button
                   key={step.id}
-                  disabled={isLocked || isSchemaLocked}
-                  onClick={() => setCurrentSlide(step.id as any)}
+                  disabled={isLocked || isSearchLocked || isSchemaLocked}
+                  onClick={() => {
+                    pushWorkspaceRoute();
+                    setIsProfileRoute(false);
+                    setCurrentSlide(step.id as any);
+                  }}
                   className={`flex flex-col sm:flex-row items-center gap-2 px-3 py-2 rounded-xl transition-all font-bold text-xs ${
                     isActive
                       ? "text-indigo-600 bg-indigo-50/20"
@@ -593,14 +815,31 @@ export default function App() {
           ) : (
             /* STATE B: Firebase Auth config exists. Route through Wizard Slides */
             <div className="space-y-6">
-              {currentSlide === "auth" && (
+              {isProfileRoute && firebaseSession && (
+                <ProfileSlide
+                  profile={userProfile}
+                  isSaving={isSavingProfile}
+                  onUpdateProfile={handleUpdateProfile}
+                  onConnectGmail={handleConnectGmail}
+                  onRevokeGmail={handleRevokeGmail}
+                />
+              )}
+
+              {(!isProfileRoute || !firebaseSession) && currentSlide === "auth" && (
                 <AuthSlide
                   isLoggingIn={isLoggingIn}
                   handleConnect={handleConnect}
                 />
               )}
 
-              {currentSlide === "search" && (
+              {!isProfileRoute && currentSlide === "create" && (
+                <CreateExtractorSlide
+                  isStarting={isSearching}
+                  onStart={handleStartExtractorCreation}
+                />
+              )}
+
+              {!isProfileRoute && currentSlide === "search" && (
                 <SearchSlide
                   subjectInput={subjectInput}
                   setSubjectInput={setSubjectInput}
@@ -615,20 +854,22 @@ export default function App() {
                   copyToClipboard={copyToClipboard}
                   handleAnalyze={handleAnalyze}
                   isAnalyzing={isAnalyzing}
+                  analysisLogs={analysisLogs}
                 />
               )}
 
-              {currentSlide === "schema" && (
+              {!isProfileRoute && currentSlide === "schema" && (
                 <SchemaSlide
                   detectedType={analysisResult?.detectedType || "Custom"}
                   explanation={analysisResult?.explanation || ""}
                   schemaFields={schemaFields}
                   setSchemaFields={setSchemaFields}
                   onProceedToScript={() => setCurrentSlide("script")}
+                  analysisLogs={analysisLogs}
                 />
               )}
 
-              {currentSlide === "script" && (
+              {!isProfileRoute && currentSlide === "script" && (
                 <ScriptSlide
                   scriptCode={scriptCode}
                   setScriptCode={setScriptCode}
@@ -640,17 +881,19 @@ export default function App() {
                 />
               )}
 
-              {currentSlide === "dashboard" && (
+              {!isProfileRoute && currentSlide === "dashboard" && (
                 <DashboardSlide
                   extractors={extractors}
                   isLoading={loadingExtractors}
                   onRunScan={handleRunScan}
                   onToggleSchedule={handleToggleSchedule}
                   onUpdateWebhook={handleUpdateWebhook}
+                  onAddSubject={handleAddExtractorSubject}
+                  onCreateExtractor={resetExtractorCreation}
                 />
               )}
 
-              {currentSlide === "tickets" && firebaseSession && (
+              {!isProfileRoute && currentSlide === "tickets" && firebaseSession && (
                 <TicketsSlide
                   currentUser={{
                     uid: firebaseSession.user.uid,
@@ -671,9 +914,9 @@ export default function App() {
           <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-center">
             <button
               type="button"
-              onClick={() => setCurrentSlide("tickets")}
+              onClick={() => handleOpenWorkspaceSlide("tickets")}
               className={`h-11 px-4 rounded-2xl border flex items-center justify-center gap-2 text-xs font-extrabold cursor-pointer transition-all ${
-                currentSlide === "tickets"
+                !isProfileRoute && currentSlide === "tickets"
                   ? "bg-slate-900 border-slate-950 text-white"
                   : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
               }`}

@@ -1,5 +1,5 @@
 import React from "react";
-import { Search, Loader2, Library, Sparkles } from "lucide-react";
+import { Search, Loader2, Library, Sparkles, ScrollText } from "lucide-react";
 import { motion } from "motion/react";
 import { EmailMessage } from "../../types";
 import { EmailRow } from "./EmailRow";
@@ -18,6 +18,7 @@ interface SearchSlideProps {
   copyToClipboard: (text: string) => void;
   handleAnalyze: () => void;
   isAnalyzing: boolean;
+  analysisLogs: string[];
 }
 
 const SUGGESTIONS = [
@@ -47,6 +48,7 @@ export const SearchSlide: React.FC<SearchSlideProps> = ({
   copyToClipboard,
   handleAnalyze,
   isAnalyzing,
+  analysisLogs,
 }) => {
   const allSelected = emails.length > 0 && selectedIds.size === emails.length;
 
@@ -165,6 +167,28 @@ export const SearchSlide: React.FC<SearchSlideProps> = ({
               )}
             </button>
           </div>
+
+          {(isAnalyzing || analysisLogs.length > 0) && (
+            <div className="border border-slate-200 bg-slate-950 rounded-2xl p-4 text-slate-100 space-y-3">
+              <div className="flex items-center gap-2 text-[11px] font-extrabold uppercase tracking-wider text-indigo-200">
+                <ScrollText className="w-3.5 h-3.5" />
+                <span>Gemini Refinement Log</span>
+              </div>
+              <div className="space-y-1.5 font-mono text-[11px] leading-relaxed max-h-44 overflow-y-auto" style={{ scrollbarWidth: "thin" }}>
+                {analysisLogs.map((log, index) => (
+                  <div key={`${index}-${log}`} className="text-slate-300">
+                    {log}
+                  </div>
+                ))}
+                {isAnalyzing && (
+                  <div className="text-indigo-200 flex items-center gap-2">
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                    <span>[Gemini Schema] Awaiting next refinement event...</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </motion.div>

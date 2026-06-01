@@ -10,10 +10,19 @@ export interface ExtractionRecord {
   timestamp: string;
 }
 
+export interface ExtractorSubject {
+  id: string;
+  value: string;
+  createdAt: string;
+  lastScannedAt?: string;
+}
+
 export interface Extractor {
   id: string;
+  userId: string;
   name: string;
   query: string;
+  subjects: ExtractorSubject[];
   detectedType: string;
   explanation: string;
   scriptCode: string;
@@ -26,6 +35,19 @@ export interface Extractor {
   createdAt: string;
 }
 
-export interface DatabaseSchema {
-  extractors: Extractor[];
+export interface GmailConnection {
+  accessToken: string;
+  connectedAt: string;
+  expiresAt: string;
+  revokedAt?: string;
+}
+
+export interface UserProfile {
+  uid: string;
+  email: string;
+  displayName: string;
+  photoURL: string;
+  createdAt: string;
+  updatedAt: string;
+  gmailConnection: GmailConnection | null;
 }

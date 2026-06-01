@@ -1,13 +1,13 @@
 import { Request, Response } from "express";
-import { readDb } from "../../db/readDb";
-import { writeDb } from "../../db/writeDb";
 import { compileExtractorScript } from "../analyze/compileExtractorScript";
-import { getGmailAccessTokenFromRequest } from "../auth/getGmailAccessTokenFromRequest";
-import { fetchGmailMessageDetail } from "../emails/fetchGmailMessageDetail";
-import { getGmailRequestHeaders } from "../emails/getGmailRequestHeaders";
+import { getPersistedGmailAccessToken } from "../auth/getPersistedGmailAccessToken";
+import { loadRequiredFirebaseUserFromRequest } from "../auth/loadRequiredFirebaseUserFromRequest";
+import { fetchGmailEmailsBySubject } from "../emails/fetchGmailEmailsBySubject";
 import { sendToWebhook } from "./sendToWebhook";
 import { ExtractionRecord } from "../../types";
-import { getExtractorIndexById } from "./getExtractorIndexById";
+import { getExtractorSubjects } from "./getExtractorSubjects";
+import { loadExtractorContextById } from "./loadExtractorContextById";
+import { saveExtractor } from "./saveExtractor";
 
 /**
  * Triggers a saved extractor to scrape the Gmail inbox for new, unparsed emails matching its selection query.
@@ -15,48 +15,49 @@ import { getExtractorIndexById } from "./getExtractorIndexById";
  */
 export async function triggerExtractor(req: Request, res: Response) {
   const { id } = req.params;
-  const token = getGmailAccessTokenFromRequest(req);
+  const firebaseUser = loadRequiredFirebaseUserFromRequest(req, res);
+  if (!firebaseUser) return;
 
+  const token = await getPersistedGmailAccessToken(req);
   if (!token) {
-    return res.status(401).json({ error: "Gmail Authorization Access Token is required to execute inbox scans." });
+    return res.status(401).json({ error: "Connect Gmail before executing inbox scans. Stored Gmail access expires weekly." });
   }
 
   try {
-    const dbObj = await readDb();
-    const extractorIndex = getExtractorIndexById(dbObj, id);
+    const extractorContext = await loadExtractorContextById(id, firebaseUser.uid);
 
-    if (extractorIndex === -1) {
+    if (!extractorContext) {
       return res.status(404).json({ error: `Extractor with ID '${id}' was not found.` });
     }
 
-    const extractor = dbObj.extractors[extractorIndex];
+    const { extractor } = extractorContext;
     const existingEmailIds = new Set(extractor.extractions.map((e) => e.emailId));
+    const extractorSubjects = getExtractorSubjects(extractor);
+    extractor.subjects = extractorSubjects;
 
-    // 1. Scan Gmail inbox using extractor's original search keyword
-    const query = `subject:"${extractor.query}"`;
-    const searchUrl = `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${encodeURIComponent(query)}&maxResults=20`;
+    if (extractorSubjects.length === 0) {
+      return res.status(400).json({ error: "Extractor has no registered subjects to scan." });
+    }
 
-    const searchResponse = await fetch(searchUrl, {
-      headers: getGmailRequestHeaders(token),
-    });
+    const unparsedEmailsById = new Map<string, any>();
+    const scannedAt = new Date().toISOString();
 
-    if (!searchResponse.ok) {
-      const text = await searchResponse.text();
-      return res.status(200).json({ 
-        error: `Gmail query failed (HTTP ${searchResponse.status}): ${text}. Please verify if the token has the necessary scopes and that the Gmail API is enabled in your Google Console.` 
+    // 1. Scan Gmail inbox using every registered subject for the shared extractor schema.
+    for (const registeredSubject of extractorSubjects) {
+      const emails = await fetchGmailEmailsBySubject(token, registeredSubject.value, 20);
+      registeredSubject.lastScannedAt = scannedAt;
+
+      emails.forEach((email) => {
+        if (!existingEmailIds.has(email.id)) {
+          unparsedEmailsById.set(email.id, email);
+        }
       });
     }
 
-    const searchData = await searchResponse.json();
-    const messages = searchData.messages || [];
-
-    // Filter to find messages we have NOT already parsed
-    const unparsedMessages = messages.filter((msg: any) => !existingEmailIds.has(msg.id));
-
-    if (unparsedMessages.length === 0) {
+    if (unparsedEmailsById.size === 0) {
       // Direct success but nothing matches, increment count representing scanning check
       extractor.triggerCount += 1;
-      await writeDb(dbObj);
+      await saveExtractor(extractor);
       return res.json({ message: "Scan completed. No new matching records found.", extractor });
     }
 
@@ -64,11 +65,8 @@ export async function triggerExtractor(req: Request, res: Response) {
 
     const newRecords: ExtractionRecord[] = [];
 
-    for (const msg of unparsedMessages) {
+    for (const detailData of unparsedEmailsById.values()) {
       try {
-        const detailData = await fetchGmailMessageDetail(token, msg.id);
-        if (!detailData) continue;
-
         // Run extraction logic
         const parsedData = extractFn(detailData.body, detailData.subject, detailData.from);
 
@@ -83,6 +81,7 @@ export async function triggerExtractor(req: Request, res: Response) {
         };
 
         newRecords.push(newRecord);
+        existingEmailIds.add(detailData.id);
 
         // Call Outbound Webhook asynchronously for each completed extraction
         if (extractor.webhookUrl) {
@@ -95,14 +94,14 @@ export async function triggerExtractor(req: Request, res: Response) {
         }
 
       } catch (err) {
-        console.error(`Dynamic parsing error during triggering on message ${msg.id}:`, err);
+        console.error(`Dynamic parsing error during triggering on message ${detailData.id}:`, err);
       }
     }
 
     if (newRecords.length > 0) {
       extractor.extractions = [...newRecords, ...extractor.extractions];
       extractor.triggerCount += 1;
-      await writeDb(dbObj);
+      await saveExtractor(extractor);
     }
 
     res.json({

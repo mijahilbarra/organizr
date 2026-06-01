@@ -81,6 +81,12 @@ function evaluateExtractionResults(results: any[], schemaFields: any[]) {
  */
 export async function analyzeEmails(req: Request, res: Response) {
   const { emails } = req.body;
+  const debugLogs: string[] = [];
+  const addDebugLog = (message: string) => {
+    const line = `[Gemini Schema] ${message}`;
+    debugLogs.push(line);
+    console.log(line);
+  };
 
   if (!emails || !Array.isArray(emails) || emails.length === 0) {
     return res.status(400).json({ error: "A list of sample emails is required for analysis." });
@@ -92,6 +98,7 @@ export async function analyzeEmails(req: Request, res: Response) {
   }
 
   try {
+    addDebugLog(`Preparing ${emails.length} selected email sample${emails.length === 1 ? "" : "s"} for schema discovery.`);
     const ai = new GoogleGenAI({
       apiKey: geminiKey,
       httpOptions: {
@@ -131,6 +138,7 @@ Email samples to analyze:
 ${emailSamplesText}
 `;
 
+    addDebugLog("Sending first schema discovery request to Gemini.");
     const response = await ai.models.generateContent({
       model: "gemini-3.5-flash",
       contents: prompt,
@@ -192,6 +200,7 @@ ${emailSamplesText}
 
     const text = response.text || "{}";
     let resultObj = JSON.parse(text);
+    addDebugLog(`Gemini returned initial schema with ${resultObj.schemaFields?.length || 0} field${resultObj.schemaFields?.length === 1 ? "" : "s"}.`);
 
     // Dynamic Self-Debugging correction loop (max 2 refinements)
     let currentResult = resultObj;
@@ -203,10 +212,10 @@ ${emailSamplesText}
       const execution = executeScript(scriptCode, emails);
       const evalReport = evaluateExtractionResults(execution.results, currentResult.schemaFields);
 
-      console.log(`[Self-Debug Tool] Loop ${loopCount + 1}: Null/empty field count: ${evalReport.nullMatches} across ${evalReport.totalOpportunities} field opportunities.`);
+      addDebugLog(`Validation pass ${loopCount + 1}: ${evalReport.nullMatches} empty value${evalReport.nullMatches === 1 ? "" : "s"} across ${evalReport.totalOpportunities} field checks; ${execution.errors.length} execution error${execution.errors.length === 1 ? "" : "s"}.`);
 
       if (evalReport.nullMatches === 0 && execution.success) {
-        console.log(`[Self-Debug Tool] Absolute match achieved! All regex scripts validated flawlessly.`);
+        addDebugLog("Validation passed without empty fields. Keeping the generated parser.");
         currentResult.sampleExtractedResults = execution.results.map(res => ({
           emailId: res.emailId,
           extractedData: JSON.stringify(res.extractedData)
@@ -215,7 +224,7 @@ ${emailSamplesText}
       }
 
       loopCount++;
-      console.log(`[Self-Debug Tool] Initiating code correction loop ${loopCount}...`);
+      addDebugLog(`Starting refinement bounce ${loopCount}: sending failed matches and parser feedback back to Gemini.`);
 
       const refinementPrompt = `
 You are an expert self-correcting assistant designed to rewrite, repair, and harden regular expressions in JavaScript.
@@ -296,25 +305,29 @@ Deliver a fully repaired schema and updated scriptCode that passes all sample te
         const verifyExecution = executeScript(verifyCleanCode, emails);
         const verifyReport = evaluateExtractionResults(verifyExecution.results, refinedObj.schemaFields);
 
-        console.log(`[Self-Debug Tool] Cycle ${loopCount} done. Null fields reduced from ${evalReport.nullMatches} to ${verifyReport.nullMatches}`);
+        addDebugLog(`Refinement bounce ${loopCount} finished: empty values changed from ${evalReport.nullMatches} to ${verifyReport.nullMatches}.`);
 
         currentResult = refinedObj;
 
         if (verifyReport.nullMatches < evalReport.nullMatches || verifyReport.nullMatches === 0) {
-          console.log(`[Self-Debug Tool] Improvement detected. Retaining corrected code version.`);
+          addDebugLog("Improvement detected. Retaining the corrected schema/parser version.");
           if (verifyExecution.success) {
             currentResult.sampleExtractedResults = verifyExecution.results.map(res => ({
               emailId: res.emailId,
               extractedData: JSON.stringify(res.extractedData)
             }));
           }
+        } else {
+          addDebugLog("No measurable improvement detected, but retaining Gemini's latest parser candidate for review.");
         }
       } catch (refineError) {
+        addDebugLog(`Refinement bounce ${loopCount} failed; returning the latest usable schema candidate.`);
         console.error(`[Self-Debug Tool] Refinement step failed:`, refineError);
         break;
       }
     }
 
+    currentResult.debugLogs = debugLogs;
     res.json(currentResult);
   } catch (err: any) {
     console.error("Gemini analytical indexing breakdown:", err);
