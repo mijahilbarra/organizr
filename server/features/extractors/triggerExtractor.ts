@@ -11,6 +11,7 @@ import { createOperationRecord } from "../operations/createOperationRecord";
 import { listExistingOperationEmailIds } from "../operations/listExistingOperationEmailIds";
 import { saveNewOperationsForExtractor } from "../operations/saveNewOperationsForExtractor";
 import { sendExtractorRecordWebhooks } from "./sendExtractorRecordWebhooks";
+import { normalizeGmailSearchDateRange } from "../emails/normalizeGmailSearchDateRange";
 
 /**
  * Triggers a saved extractor to scrape the Gmail inbox for new, unparsed emails matching its selection query.
@@ -34,6 +35,10 @@ export async function triggerExtractor(req: Request, res: Response) {
     }
 
     const { extractor } = extractorContext;
+    const dateRange = normalizeGmailSearchDateRange({
+      after: req.body?.after,
+      before: req.body?.before,
+    });
     const extractorSubjects = getExtractorSubjects(extractor);
     extractor.subjects = extractorSubjects;
 
@@ -46,7 +51,7 @@ export async function triggerExtractor(req: Request, res: Response) {
 
     // 1. Scan Gmail inbox using every registered subject for the shared extractor schema.
     for (const registeredSubject of extractorSubjects) {
-      const emails = await fetchGmailEmailsBySubject(token, registeredSubject.value, 20);
+      const emails = await fetchGmailEmailsBySubject(token, registeredSubject.value, 500, dateRange);
       registeredSubject.lastScannedAt = scannedAt;
       const existingEmailIds = await listExistingOperationEmailIds(extractor.id, emails.map((email) => email.id));
 

@@ -6,7 +6,7 @@ import { AddExtractorSubjectResponse, Extractor, ExtractionRecord, ExtractorOper
 interface DashboardSlideProps {
   extractors: Extractor[];
   isLoading: boolean;
-  onRunScan: (id: string) => Promise<void>;
+  onRunScan: (id: string, dateRange?: { after?: string; before?: string }) => Promise<void>;
   onToggleSchedule: (id: string, enabled: boolean) => Promise<void>;
   onUpdateWebhook: (id: string, url: string) => Promise<void>;
   onAddSubject: (id: string, subject: string) => Promise<AddExtractorSubjectResponse>;
@@ -46,6 +46,8 @@ export const DashboardSlide: React.FC<DashboardSlideProps> = ({
   // Syncing states for specific rows
   const [syncingIds, setSyncingIds] = useState<Set<string>>(new Set());
   const [syncFeedback, setSyncFeedback] = useState<Record<string, string>>({});
+  const [syncAfterByExtractorId, setSyncAfterByExtractorId] = useState<Record<string, string>>({});
+  const [syncBeforeByExtractorId, setSyncBeforeByExtractorId] = useState<Record<string, string>>({});
   const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
   const [operationRowsByExtractorId, setOperationRowsByExtractorId] = useState<Record<string, ExtractionRecord[]>>({});
   const [operationCursorByExtractorId, setOperationCursorByExtractorId] = useState<Record<string, string | null>>({});
@@ -63,6 +65,9 @@ export const DashboardSlide: React.FC<DashboardSlideProps> = ({
   }, [extractors, selectedExtractorId]);
 
   const handleManualSync = async (id: string) => {
+    const after = syncAfterByExtractorId[id] || undefined;
+    const before = syncBeforeByExtractorId[id] || undefined;
+
     try {
       setSyncingIds((prev) => {
         const next = new Set(prev);
@@ -71,12 +76,13 @@ export const DashboardSlide: React.FC<DashboardSlideProps> = ({
       });
       setSyncFeedback((prev) => ({ ...prev, [id]: "" }));
 
-      await onRunScan(id);
+      await onRunScan(id, { after, before });
       const page = await onLoadOperations(id);
       setOperationRowsByExtractorId((prev) => ({ ...prev, [id]: page.operations }));
       setOperationCursorByExtractorId((prev) => ({ ...prev, [id]: page.nextCursor }));
 
-      setSyncFeedback((prev) => ({ ...prev, [id]: "Scan completed! Check updated records below." }));
+      const rangeLabel = after || before ? " for the selected dates" : "";
+      setSyncFeedback((prev) => ({ ...prev, [id]: `Scan completed${rangeLabel}. Check updated records below.` }));
     } catch (error: any) {
       setSyncFeedback((prev) => ({ ...prev, [id]: error.message || "Scan failed." }));
     } finally {
@@ -276,14 +282,36 @@ export const DashboardSlide: React.FC<DashboardSlideProps> = ({
                     {/* Meta controls & actions */}
                     <div className="border-t border-slate-100 mt-3 pt-3 flex flex-wrap gap-3 items-center justify-between" onClick={(e) => e.stopPropagation()}>
                       {/* Scan trigger */}
-                      <button
-                        onClick={() => handleManualSync(ext.id)}
-                        disabled={isSyncing || isDeleting}
-                        className="py-1 px-3 rounded-lg bg-slate-900 border border-slate-950 hover:bg-black text-white font-bold text-[10px] transition-all flex items-center gap-1 cursor-pointer select-none"
-                      >
-                        {isSyncing ? <Loader2 className="w-2.5 h-2.5 animate-spin" /> : <Play className="w-2.5 h-2.5 fill-current" />}
-                        <span>Sync Box</span>
-                      </button>
+                      <div className="flex flex-wrap items-end gap-2">
+                        <label className="flex flex-col gap-1 text-[9px] font-bold uppercase tracking-wide text-slate-400">
+                          From
+                          <input
+                            type="date"
+                            value={syncAfterByExtractorId[ext.id] || ""}
+                            onChange={(e) => setSyncAfterByExtractorId((prev) => ({ ...prev, [ext.id]: e.target.value }))}
+                            disabled={isSyncing || isDeleting}
+                            className="h-8 rounded-lg border border-slate-200 bg-white px-2 text-[11px] font-semibold normal-case tracking-normal text-slate-700 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                          />
+                        </label>
+                        <label className="flex flex-col gap-1 text-[9px] font-bold uppercase tracking-wide text-slate-400">
+                          To
+                          <input
+                            type="date"
+                            value={syncBeforeByExtractorId[ext.id] || ""}
+                            onChange={(e) => setSyncBeforeByExtractorId((prev) => ({ ...prev, [ext.id]: e.target.value }))}
+                            disabled={isSyncing || isDeleting}
+                            className="h-8 rounded-lg border border-slate-200 bg-white px-2 text-[11px] font-semibold normal-case tracking-normal text-slate-700 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                          />
+                        </label>
+                        <button
+                          onClick={() => handleManualSync(ext.id)}
+                          disabled={isSyncing || isDeleting}
+                          className="h-8 px-3 rounded-lg bg-slate-900 border border-slate-950 hover:bg-black text-white font-bold text-[10px] transition-all flex items-center gap-1 cursor-pointer select-none"
+                        >
+                          {isSyncing ? <Loader2 className="w-2.5 h-2.5 animate-spin" /> : <Play className="w-2.5 h-2.5 fill-current" />}
+                          <span>Sync Box</span>
+                        </button>
+                      </div>
 
                       {/* Schedule toggle checkbox */}
                       <label className="flex items-center gap-1.5 cursor-pointer text-[10px] font-bold text-slate-500 select-none">

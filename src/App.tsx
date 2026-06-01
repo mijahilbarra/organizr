@@ -504,11 +504,12 @@ export default function App() {
   };
 
   // Extractor Crawler sync/scanning trigger
-  const handleRunScan = async (id: string) => {
+  const handleRunScan = async (id: string, dateRange: { after?: string; before?: string } = {}) => {
     try {
       const res = await fetch(`/api/extractors/${id}/run`, {
         method: "POST",
-        headers: createBackendHeadersForSession(firebaseSession),
+        headers: createBackendHeadersForSession(firebaseSession, true),
+        body: JSON.stringify(dateRange),
       });
 
       if (!res.ok) {

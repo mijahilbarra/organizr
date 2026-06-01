@@ -181,15 +181,15 @@ sequenceDiagram
   Function-->>Frontend: Devuelve pagina actualizada de operaciones
   Frontend-->>User: Muestra subject registrado y filas nuevas en la tabla
 
-  User->>Frontend: Ejecuta extractor o sincroniza correos
-  Frontend->>Function: triggerExtractor(extractorId) con Authorization Firebase
+  User->>Frontend: Ejecuta extractor o sincroniza correos con fechas opcionales
+  Frontend->>Function: triggerExtractor(extractorId, after, before) con Authorization Firebase
   Function->>FirebaseAuth: Verifica Firebase ID token
   FirebaseAuth-->>Function: Usuario verificado
   Function->>Firestore: Lee extractors/{extractorId}, valida userId y lee token Gmail
   Firestore-->>Function: Configuracion del extractor compartido
   alt Token Gmail activo
     loop Por cada asunto registrado
-      Function->>Gmail: Busca correos por subject con access token Gmail
+      Function->>Gmail: Busca correos por subject y rango de fechas con access token Gmail
     end
   else Token ausente, revocado o expirado
     Function-->>Frontend: Solicita reconectar Gmail

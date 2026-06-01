@@ -1,24 +1,33 @@
 import { fetchGmailMessageDetail, GmailMessageDetail } from "./fetchGmailMessageDetail";
+import { createGmailMessagesSearchUrl } from "./createGmailMessagesSearchUrl";
+import { GmailSearchDateRange } from "./GmailSearchDateRange";
 import { getGmailRequestHeaders } from "./getGmailRequestHeaders";
 
 export async function fetchGmailEmailsBySubject(
   token: string,
   subject: string,
   maxResults = 20,
+  dateRange: GmailSearchDateRange = {},
 ): Promise<GmailMessageDetail[]> {
-  const query = `subject:"${subject}"`;
-  const searchUrl = `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${encodeURIComponent(query)}&maxResults=${maxResults}`;
-  const searchResponse = await fetch(searchUrl, {
-    headers: getGmailRequestHeaders(token),
-  });
+  const pageSize = Math.min(maxResults, 500);
+  const messages: any[] = [];
+  let pageToken: string | undefined;
 
-  if (!searchResponse.ok) {
-    const details = await searchResponse.text();
-    throw new Error(`Gmail query failed (HTTP ${searchResponse.status}): ${details}`);
-  }
+  do {
+    const searchUrl = createGmailMessagesSearchUrl(subject, Math.min(pageSize, maxResults - messages.length), dateRange, pageToken);
+    const searchResponse = await fetch(searchUrl, {
+      headers: getGmailRequestHeaders(token),
+    });
 
-  const searchData = await searchResponse.json();
-  const messages = searchData.messages || [];
+    if (!searchResponse.ok) {
+      const details = await searchResponse.text();
+      throw new Error(`Gmail query failed (HTTP ${searchResponse.status}): ${details}`);
+    }
+
+    const searchData = await searchResponse.json();
+    messages.push(...(searchData.messages || []));
+    pageToken = searchData.nextPageToken;
+  } while (pageToken && messages.length < maxResults);
 
   if (messages.length === 0) {
     return [];
