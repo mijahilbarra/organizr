@@ -7,6 +7,7 @@ export type ExtractorDocumentRef = {
     data: () => unknown;
   }>;
   set: (data: unknown, options?: { merge: boolean }) => Promise<unknown>;
+  delete: () => Promise<unknown>;
 };
 
 type FirestoreQuerySnapshot = {

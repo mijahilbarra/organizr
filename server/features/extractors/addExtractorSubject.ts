@@ -8,7 +8,9 @@ import { createExtractionRecordFromSchemaResult } from "./createExtractionRecord
 import { loadExtractorContextById } from "./loadExtractorContextById";
 import { normalizeExtractorSubjects } from "./normalizeExtractorSubjects";
 import { saveExtractor } from "./saveExtractor";
-import { sendToWebhook } from "./sendToWebhook";
+import { sendExtractorRecordWebhooks } from "./sendExtractorRecordWebhooks";
+import { listExistingOperationEmailIds } from "../operations/listExistingOperationEmailIds";
+import { saveNewOperationsForExtractor } from "../operations/saveNewOperationsForExtractor";
 
 export async function addExtractorSubject(req: Request, res: Response) {
   const { id } = req.params;
@@ -53,7 +55,7 @@ export async function addExtractorSubject(req: Request, res: Response) {
     );
     const scannedAt = new Date().toISOString();
     const matchingEmails = await fetchGmailEmailsBySubject(token, subject, 10);
-    const existingEmailIds = new Set(extractor.extractions.map((extraction) => extraction.emailId));
+    const existingEmailIds = await listExistingOperationEmailIds(extractor.id, matchingEmails.map((email) => email.id));
     const newEmails = matchingEmails.filter((email) => !existingEmailIds.has(email.id));
 
     if (targetSubject) {
@@ -82,32 +84,24 @@ export async function addExtractorSubject(req: Request, res: Response) {
     const newRecords = extractionResults.flatMap((result) => {
       const email = emailById.get(result.emailId);
       if (!email) return [];
-      const record = createExtractionRecordFromSchemaResult(email, result, extractor.schemaFields);
+      const record = createExtractionRecordFromSchemaResult(extractor.id, email, result, extractor.schemaFields);
       return record ? [record] : [];
     });
 
-    if (newRecords.length > 0) {
-      extractor.extractions = [...newRecords, ...extractor.extractions];
-    }
+    const savedRecords = await saveNewOperationsForExtractor(extractor.id, firebaseUser.uid, newRecords);
+    extractor.operationCount += savedRecords.length;
+    extractor.extractions = [];
 
     await saveExtractor(extractor);
+    extractor.extractions = savedRecords;
 
-    if (extractor.webhookUrl && newRecords.length > 0) {
-      newRecords.forEach((record) => {
-        sendToWebhook(extractor.webhookUrl, {
-          event: "extractor.record_created",
-          extractorId: extractor.id,
-          extractorName: extractor.name,
-          record,
-        }).catch((err) => console.error("Webhook deferred dispatch crashed:", err));
-      });
-    }
+    sendExtractorRecordWebhooks(extractor.webhookUrl, "extractor.record_created", extractor.id, extractor.name, savedRecords);
 
     return res.json({
       extractor,
-      newCount: newRecords.length,
+      newCount: savedRecords.length,
       scannedCount: matchingEmails.length,
-      message: `Subject registered. Gemini extracted ${newRecords.length} new record${newRecords.length === 1 ? "" : "s"} with the current schema.`,
+      message: `Subject registered. Gemini extracted ${savedRecords.length} new record${savedRecords.length === 1 ? "" : "s"} with the current schema.`,
     });
   } catch (error: any) {
     const message = error.message || "Failed to add extractor subject.";

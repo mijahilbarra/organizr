@@ -3,11 +3,14 @@ import { compileExtractorScript } from "../analyze/compileExtractorScript";
 import { getPersistedGmailAccessToken } from "../auth/getPersistedGmailAccessToken";
 import { loadRequiredFirebaseUserFromRequest } from "../auth/loadRequiredFirebaseUserFromRequest";
 import { fetchGmailEmailsBySubject } from "../emails/fetchGmailEmailsBySubject";
-import { sendToWebhook } from "./sendToWebhook";
 import { ExtractionRecord } from "../../types";
 import { getExtractorSubjects } from "./getExtractorSubjects";
 import { loadExtractorContextById } from "./loadExtractorContextById";
 import { saveExtractor } from "./saveExtractor";
+import { createOperationRecord } from "../operations/createOperationRecord";
+import { listExistingOperationEmailIds } from "../operations/listExistingOperationEmailIds";
+import { saveNewOperationsForExtractor } from "../operations/saveNewOperationsForExtractor";
+import { sendExtractorRecordWebhooks } from "./sendExtractorRecordWebhooks";
 
 /**
  * Triggers a saved extractor to scrape the Gmail inbox for new, unparsed emails matching its selection query.
@@ -31,7 +34,6 @@ export async function triggerExtractor(req: Request, res: Response) {
     }
 
     const { extractor } = extractorContext;
-    const existingEmailIds = new Set(extractor.extractions.map((e) => e.emailId));
     const extractorSubjects = getExtractorSubjects(extractor);
     extractor.subjects = extractorSubjects;
 
@@ -46,6 +48,7 @@ export async function triggerExtractor(req: Request, res: Response) {
     for (const registeredSubject of extractorSubjects) {
       const emails = await fetchGmailEmailsBySubject(token, registeredSubject.value, 20);
       registeredSubject.lastScannedAt = scannedAt;
+      const existingEmailIds = await listExistingOperationEmailIds(extractor.id, emails.map((email) => email.id));
 
       emails.forEach((email) => {
         if (!existingEmailIds.has(email.id)) {
@@ -70,43 +73,26 @@ export async function triggerExtractor(req: Request, res: Response) {
         // Run extraction logic
         const parsedData = extractFn(detailData.body, detailData.subject, detailData.from);
 
-        const newRecord: ExtractionRecord = {
-          id: `rec_${Math.random().toString(36).substring(2, 9)}`,
-          emailId: detailData.id,
-          subject: detailData.subject,
-          from: detailData.from,
-          date: detailData.date,
-          extractedData: parsedData,
-          timestamp: new Date().toISOString(),
-        };
+        const newRecord: ExtractionRecord = createOperationRecord(extractor.id, detailData, parsedData);
 
         newRecords.push(newRecord);
-        existingEmailIds.add(detailData.id);
-
-        // Call Outbound Webhook asynchronously for each completed extraction
-        if (extractor.webhookUrl) {
-          sendToWebhook(extractor.webhookUrl, {
-            event: "extractor.record_discovered",
-            extractorId: extractor.id,
-            extractorName: extractor.name,
-            record: newRecord,
-          }).catch((err) => console.error("Webhook error during trigger execution:", err));
-        }
-
       } catch (err) {
         console.error(`Dynamic parsing error during triggering on message ${detailData.id}:`, err);
       }
     }
 
-    if (newRecords.length > 0) {
-      extractor.extractions = [...newRecords, ...extractor.extractions];
-      extractor.triggerCount += 1;
-      await saveExtractor(extractor);
-    }
+    const savedRecords = await saveNewOperationsForExtractor(extractor.id, firebaseUser.uid, newRecords);
+    extractor.triggerCount += 1;
+    extractor.operationCount += savedRecords.length;
+    extractor.extractions = [];
+    await saveExtractor(extractor);
+    extractor.extractions = savedRecords;
+
+    sendExtractorRecordWebhooks(extractor.webhookUrl, "extractor.record_discovered", extractor.id, extractor.name, savedRecords);
 
     res.json({
-      message: `Scanned and successfully extracted ${newRecords.length} new records!`,
-      newCount: newRecords.length,
+      message: `Scanned and successfully extracted ${savedRecords.length} new records!`,
+      newCount: savedRecords.length,
       extractor,
     });
 

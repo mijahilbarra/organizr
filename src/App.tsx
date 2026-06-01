@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from "react";
+import React, { useCallback, useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { Key, AlertCircle, RefreshCw, LogOut, PlusCircle, Bug, LogIn } from "lucide-react";
-import { EmailMessage, AnalysisResponse, SchemaField, Extractor, UserProfile, AddExtractorSubjectResponse } from "./types";
+import { EmailMessage, AnalysisResponse, SchemaField, Extractor, UserProfile, AddExtractorSubjectResponse, ExtractorOperationsPage } from "./types";
 import { createBackendHeadersForSession } from "./firebase/createBackendHeadersForSession";
 import type { FirebaseAuthSession } from "./firebase/FirebaseAuthSession";
 import { hasFirebaseConfig } from "./firebase/hasFirebaseConfig";
@@ -24,6 +24,8 @@ import { pushProfileRoute } from "./features/profile/pushProfileRoute";
 import { pushWorkspaceRoute } from "./features/profile/pushWorkspaceRoute";
 import { postExtractorUpdate } from "./features/dashboard/postExtractorUpdate";
 import { TicketsSlide } from "./features/tickets/TicketsSlide";
+import { isTicketsRoutePath } from "./features/tickets/isTicketsRoutePath";
+import { pushTicketsRoute } from "./features/tickets/pushTicketsRoute";
 
 export default function App() {
   // Global states
@@ -38,7 +40,9 @@ export default function App() {
   const [isProfileRoute, setIsProfileRoute] = useState(isProfileRoutePath(window.location.pathname));
 
   // Active Wizard flow navigation
-  const [currentSlide, setCurrentSlide] = useState<"auth" | "create" | "search" | "schema" | "script" | "dashboard" | "tickets">("auth");
+  const [currentSlide, setCurrentSlide] = useState<"auth" | "create" | "search" | "schema" | "script" | "dashboard" | "tickets">(
+    isTicketsRoutePath(window.location.pathname) ? "tickets" : "auth"
+  );
 
   // Crawling States
   const [subjectInput, setSubjectInput] = useState("");
@@ -145,7 +149,13 @@ export default function App() {
 
   useEffect(() => {
     const syncProfileRoute = () => {
-      setIsProfileRoute(isProfileRoutePath(window.location.pathname));
+      const pathname = window.location.pathname;
+      setIsProfileRoute(isProfileRoutePath(pathname));
+      if (isTicketsRoutePath(pathname)) {
+        setCurrentSlide("tickets");
+      } else if (!isProfileRoutePath(pathname) && currentSlide === "tickets") {
+        setCurrentSlide(firebaseSession ? "dashboard" : "auth");
+      }
     };
 
     window.addEventListener("popstate", syncProfileRoute);
@@ -153,7 +163,7 @@ export default function App() {
     return () => {
       window.removeEventListener("popstate", syncProfileRoute);
     };
-  }, []);
+  }, [currentSlide, firebaseSession]);
 
   useEffect(() => {
     if (!hasFirebaseConfig()) {
@@ -324,7 +334,11 @@ export default function App() {
   };
 
   const handleOpenWorkspaceSlide = (slide: "dashboard" | "tickets") => {
-    pushWorkspaceRoute();
+    if (slide === "tickets") {
+      pushTicketsRoute();
+    } else {
+      pushWorkspaceRoute();
+    }
     setIsProfileRoute(false);
     setCurrentSlide(slide);
   };
@@ -570,6 +584,45 @@ export default function App() {
     const result = await res.json() as AddExtractorSubjectResponse;
     setExtractors((prev) => prev.map((e) => (e.id === id ? result.extractor : e)));
     return result;
+  };
+
+  const handleLoadExtractorOperations = useCallback(async (id: string, cursor?: string | null): Promise<ExtractorOperationsPage> => {
+    const params = new URLSearchParams({ limit: "20" });
+    if (cursor) {
+      params.set("cursor", cursor);
+    }
+
+    const res = await fetch(`/api/extractors/${id}/operations?${params.toString()}`, {
+      headers: createBackendHeadersForSession(firebaseSession),
+    });
+
+    if (!res.ok) {
+      const errObj = await res.json();
+      throw new Error(errObj.error || "Failed to load extractor operations.");
+    }
+
+    return await res.json() as ExtractorOperationsPage;
+  }, [firebaseSession]);
+
+  const handleDeleteExtractor = async (id: string) => {
+    const previousExtractors = extractors;
+    setExtractors((prev) => prev.filter((extractor) => extractor.id !== id));
+
+    try {
+      const res = await fetch(`/api/extractors/${id}`, {
+        method: "DELETE",
+        headers: createBackendHeadersForSession(firebaseSession),
+      });
+
+      if (!res.ok) {
+        const errObj = await res.json();
+        throw new Error(errObj.error || "Failed to delete extractor.");
+      }
+    } catch (err: any) {
+      setExtractors(previousExtractors);
+      setErrorText(err.message || "Failed to delete extractor.");
+      throw err;
+    }
   };
 
   const copyToClipboard = (text: string) => {
@@ -894,6 +947,8 @@ export default function App() {
                   onToggleSchedule={handleToggleSchedule}
                   onUpdateWebhook={handleUpdateWebhook}
                   onAddSubject={handleAddExtractorSubject}
+                  onLoadOperations={handleLoadExtractorOperations}
+                  onDeleteExtractor={handleDeleteExtractor}
                   onCreateExtractor={resetExtractorCreation}
                 />
               )}
@@ -916,14 +971,14 @@ export default function App() {
 
       {firebaseSession && (
         <footer className="fixed bottom-0 inset-x-0 z-50 bg-white/95 backdrop-blur border-t border-slate-200 shadow-[0_-8px_30px_rgba(15,23,42,0.06)]">
-          <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-center">
+          <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-end">
             <button
               type="button"
               onClick={() => handleOpenWorkspaceSlide("tickets")}
-              className={`h-11 px-4 rounded-2xl border flex items-center justify-center gap-2 text-xs font-extrabold cursor-pointer transition-all ${
+              className={`h-11 px-1 flex items-center justify-center gap-2 text-xs font-extrabold cursor-pointer transition-all ${
                 !isProfileRoute && currentSlide === "tickets"
-                  ? "bg-slate-900 border-slate-950 text-white"
-                  : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+                  ? "text-slate-950"
+                  : "text-slate-500 hover:text-slate-900"
               }`}
               title="Tickets"
             >

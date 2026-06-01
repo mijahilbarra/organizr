@@ -46,6 +46,7 @@ export interface ExtractionRecord {
   from: string;
   date: string;
   extractedData: Record<string, any>;
+  timestamp?: string;
 }
 
 export interface ExtractorSubject {
@@ -68,6 +69,7 @@ export interface Extractor {
   schemaFields: SchemaField[];
   enabledSchedule: boolean;
   webhookUrl?: string;
+  operationCount: number;
   extractions: ExtractionRecord[];
 }
 
@@ -76,6 +78,11 @@ export interface AddExtractorSubjectResponse {
   newCount: number;
   scannedCount: number;
   message: string;
+}
+
+export interface ExtractorOperationsPage {
+  operations: ExtractionRecord[];
+  nextCursor: string | null;
 }
 
 export interface UserProfile {

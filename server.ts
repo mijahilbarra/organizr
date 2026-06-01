@@ -13,12 +13,14 @@ import { listExtractors } from "./server/features/extractors/listExtractors";
 import { triggerExtractor } from "./server/features/extractors/triggerExtractor";
 import { toggleSchedule } from "./server/features/extractors/toggleSchedule";
 import { updateWebhook } from "./server/features/extractors/updateWebhook";
+import { deleteExtractor } from "./server/features/extractors/deleteExtractor";
 import { getProfile } from "./server/features/profile/getProfile";
 import { updateProfile } from "./server/features/profile/updateProfile";
 import { connectGmail } from "./server/features/profile/connectGmail";
 import { revokeGmail } from "./server/features/profile/revokeGmail";
 import { listExtractorSubjects } from "./server/features/extractors/listExtractorSubjects";
 import { addExtractorSubject } from "./server/features/extractors/addExtractorSubject";
+import { listExtractorOperations } from "./server/features/operations/listExtractorOperations";
 
 dotenv.config();
 dotenv.config({ path: path.resolve(process.cwd(), "../.env") });
@@ -74,9 +76,11 @@ app.get(extractorRoutes, listExtractors);
 app.post(extractorRoutes, createExtractor);
 app.get(["/api/extractors/:id/subjects", "/extractors/:id/subjects"], listExtractorSubjects);
 app.post(["/api/extractors/:id/subjects", "/extractors/:id/subjects"], addExtractorSubject);
+app.get(["/api/extractors/:id/operations", "/extractors/:id/operations"], listExtractorOperations);
 app.post(["/api/extractors/:id/run", "/extractors/:id/run"], triggerExtractor);
 app.post(["/api/extractors/:id/schedule", "/extractors/:id/schedule"], toggleSchedule);
 app.post(["/api/extractors/:id/webhook", "/extractors/:id/webhook"], updateWebhook);
+app.delete(["/api/extractors/:id", "/extractors/:id"], deleteExtractor);
 
 // Global JSON Error Handler - Ensures backend errors do not crash client with HTML payloads
 app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {

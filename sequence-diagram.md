@@ -137,9 +137,13 @@ sequenceDiagram
   Function->>Function: testExtractor(script, exampleEmails)
 
   alt Extractor valido
-    Function->>Firestore: Guarda documento extractors/{extractorId} con userId y primera extraccion
+    Function->>Firestore: Guarda documento extractors/{extractorId} con userId y metadata
+    Function->>Firestore: Crea operations/{extractorId_emailId} para emails nuevos e incrementa operationCount
     Function-->>Frontend: Devuelve extractor guardado
-    Frontend-->>User: Muestra dashboard con tabla
+    Frontend->>Function: listExtractorOperations(extractorId, limit 20)
+    Function->>Firestore: Lee operations por extractorId ordenadas por timestamp
+    Function-->>Frontend: Devuelve primera pagina de operaciones
+    Frontend-->>User: Muestra dashboard con tabla paginada
   else Extractor invalido
     Function-->>Frontend: Devuelve error o solicita ajuste
     Frontend-->>User: Muestra estado para correccion
@@ -167,10 +171,14 @@ sequenceDiagram
   Function->>Firestore: Lee token Gmail persistido en users/{uid}
   Function->>Gmail: Busca correos candidatos por el nuevo subject
   Gmail-->>Function: Devuelve correos candidatos
+  Function->>Firestore: Consulta operations/{extractorId_emailId} para evitar duplicados
   Function->>Gemini: Extrae datos usando solo el esquema actual del extractor
   Gemini-->>Function: Devuelve datos estructurados por email
-  Function->>Firestore: Actualiza el documento del extractor con subject y nuevas extracciones
+  Function->>Firestore: Guarda operations nuevas e incrementa operationCount
+  Function->>Firestore: Actualiza subject y contadores en extractors/{extractorId}
   Function-->>Frontend: Devuelve extractor actualizado y conteo extraido
+  Frontend->>Function: listExtractorOperations(extractorId, limit 20)
+  Function-->>Frontend: Devuelve pagina actualizada de operaciones
   Frontend-->>User: Muestra subject registrado y filas nuevas en la tabla
 
   User->>Frontend: Ejecuta extractor o sincroniza correos
@@ -187,10 +195,23 @@ sequenceDiagram
     Function-->>Frontend: Solicita reconectar Gmail
   end
   Gmail-->>Function: Correos nuevos
+  Function->>Firestore: Consulta operations/{extractorId_emailId} para evitar duplicados
   Function->>Function: Ejecuta script extractor
-  Function->>Firestore: Actualiza extractors/{extractorId} con extracciones nuevas
+  Function->>Firestore: Guarda operations nuevas e incrementa operationCount
+  Function->>Firestore: Actualiza lastScannedAt y triggerCount en extractors/{extractorId}
   Function-->>Frontend: Devuelve resultados
-  Frontend-->>User: Actualiza tabla
+  Frontend->>Function: listExtractorOperations(extractorId, limit 20)
+  Function-->>Frontend: Devuelve pagina actualizada de operaciones
+  Frontend-->>User: Actualiza tabla paginada
+
+  User->>Frontend: Elimina un extractor guardado
+  Frontend->>Function: deleteExtractor(extractorId) con Authorization Firebase
+  Function->>FirebaseAuth: Verifica Firebase ID token
+  FirebaseAuth-->>Function: Usuario verificado
+  Function->>Firestore: Lee extractors/{extractorId} y valida userId
+  Function->>Firestore: Borra extractors/{extractorId}
+  Function-->>Frontend: Confirma eliminacion
+  Frontend-->>User: Quita extractor del dashboard
 ```
 
 ## Historia 7: Configurar Y Enviar A Webhook Externo
@@ -237,7 +258,7 @@ sequenceDiagram
   participant Firestore as Firestore
   participant AdminScript as Scripts Firebase Admin
 
-  User->>Frontend: Abre Tickets desde el footer
+  User->>Frontend: Abre /tickets desde el footer
   Frontend->>FirebaseAuth: Usa cuenta actual autenticada
   Frontend->>Firestore: onSnapshot(tickets)
   Firestore-->>Frontend: Devuelve tickets y cambios en vivo

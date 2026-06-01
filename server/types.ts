@@ -31,6 +31,7 @@ export interface Extractor {
   webhookUrl: string;
   enabledSchedule: boolean;
   triggerCount: number;
+  operationCount: number;
   extractions: ExtractionRecord[];
   createdAt: string;
 }

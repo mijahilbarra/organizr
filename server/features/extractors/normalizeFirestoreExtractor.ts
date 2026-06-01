@@ -17,7 +17,10 @@ export function normalizeFirestoreExtractor(id: string, data: unknown): Extracto
     webhookUrl: source.webhookUrl || "",
     enabledSchedule: !!source.enabledSchedule,
     triggerCount: typeof source.triggerCount === "number" ? source.triggerCount : 0,
-    extractions: Array.isArray(source.extractions) ? source.extractions : [],
+    operationCount: typeof source.operationCount === "number"
+      ? source.operationCount
+      : Array.isArray(source.extractions) ? source.extractions.length : 0,
+    extractions: [],
     createdAt: source.createdAt || "",
   });
 

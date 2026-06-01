@@ -1,10 +1,12 @@
 import { Request, Response } from "express";
 import { Extractor, ExtractionRecord } from "../../types";
 import { loadRequiredFirebaseUserFromRequest } from "../auth/loadRequiredFirebaseUserFromRequest";
-import { sendToWebhook } from "./sendToWebhook";
 import { createExtractorSubject } from "./createExtractorSubject";
 import { getUniqueSubjectValues } from "./getUniqueSubjectValues";
 import { saveExtractor } from "./saveExtractor";
+import { createOperationRecord } from "../operations/createOperationRecord";
+import { saveNewOperationsForExtractor } from "../operations/saveNewOperationsForExtractor";
+import { sendExtractorRecordWebhooks } from "./sendExtractorRecordWebhooks";
 
 /**
  * Creates and persists a new email extractor containing layout descriptions,
@@ -50,15 +52,7 @@ export async function createExtractor(req: Request, res: Response) {
         if (matchRes) {
           try {
             const parsedData = JSON.parse(matchRes.extractedData);
-            extractions.push({
-              id: `rec_${Math.random().toString(36).substring(2, 9)}`,
-              emailId: mail.id,
-              subject: mail.subject || "No Subject",
-              date: mail.date || "Unknown Date",
-              from: mail.from || "Unknown Sender",
-              extractedData: parsedData,
-              timestamp: new Date().toISOString(),
-            });
+            extractions.push(createOperationRecord(extractorId, mail, parsedData));
           } catch (e) {
             console.warn(`Initial result parsing crashed for mail ${mail.id}:`, e);
           }
@@ -80,23 +74,17 @@ export async function createExtractor(req: Request, res: Response) {
       webhookUrl: webhookUrl || "",
       enabledSchedule: !!enabledSchedule,
       triggerCount: extractions.length > 0 ? 1 : 0,
-      extractions,
+      operationCount: 0,
+      extractions: [],
       createdAt: new Date().toISOString(),
     };
 
     await saveExtractor(newExtractor);
+    const savedExtractions = await saveNewOperationsForExtractor(extractorId, firebaseUser.uid, extractions);
+    newExtractor.operationCount = savedExtractions.length;
+    newExtractor.extractions = savedExtractions;
 
-    // If webhook configured, push initial records to webhook asynchronously
-    if (newExtractor.webhookUrl && extractions.length > 0) {
-      extractions.forEach((rec) => {
-        sendToWebhook(newExtractor.webhookUrl, {
-          event: "extractor.record_created",
-          extractorId: newExtractor.id,
-          extractorName: newExtractor.name,
-          record: rec,
-        }).catch((err) => console.error("Webhook deferred dispatch crashed:", err));
-      });
-    }
+    sendExtractorRecordWebhooks(newExtractor.webhookUrl, "extractor.record_created", newExtractor.id, newExtractor.name, savedExtractions);
 
     res.json(newExtractor);
   } catch (error: any) {

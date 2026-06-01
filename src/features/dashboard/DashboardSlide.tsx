@@ -1,7 +1,7 @@
-import React, { useState } from "react";
-import { Play, Calendar, Globe, Table, SlidersHorizontal, Loader2, Plus, Tags } from "lucide-react";
+import React, { useEffect, useState } from "react";
+import { Play, Calendar, Globe, Table, SlidersHorizontal, Loader2, Plus, Tags, Trash2 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
-import { AddExtractorSubjectResponse, Extractor, ExtractionRecord } from "../../types";
+import { AddExtractorSubjectResponse, Extractor, ExtractionRecord, ExtractorOperationsPage } from "../../types";
 
 interface DashboardSlideProps {
   extractors: Extractor[];
@@ -10,6 +10,8 @@ interface DashboardSlideProps {
   onToggleSchedule: (id: string, enabled: boolean) => Promise<void>;
   onUpdateWebhook: (id: string, url: string) => Promise<void>;
   onAddSubject: (id: string, subject: string) => Promise<AddExtractorSubjectResponse>;
+  onLoadOperations: (id: string, cursor?: string | null) => Promise<ExtractorOperationsPage>;
+  onDeleteExtractor: (id: string) => Promise<void>;
   onCreateExtractor: () => void;
 }
 
@@ -25,6 +27,8 @@ export const DashboardSlide: React.FC<DashboardSlideProps> = ({
   onToggleSchedule,
   onUpdateWebhook,
   onAddSubject,
+  onLoadOperations,
+  onDeleteExtractor,
   onCreateExtractor,
 }) => {
   const [selectedExtractorId, setSelectedExtractorId] = useState<string | null>(
@@ -42,6 +46,21 @@ export const DashboardSlide: React.FC<DashboardSlideProps> = ({
   // Syncing states for specific rows
   const [syncingIds, setSyncingIds] = useState<Set<string>>(new Set());
   const [syncFeedback, setSyncFeedback] = useState<Record<string, string>>({});
+  const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
+  const [operationRowsByExtractorId, setOperationRowsByExtractorId] = useState<Record<string, ExtractionRecord[]>>({});
+  const [operationCursorByExtractorId, setOperationCursorByExtractorId] = useState<Record<string, string | null>>({});
+  const [loadingOperationsId, setLoadingOperationsId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (extractors.length === 0) {
+      setSelectedExtractorId(null);
+      return;
+    }
+
+    if (!selectedExtractorId || !extractors.some((extractor) => extractor.id === selectedExtractorId)) {
+      setSelectedExtractorId(extractors[0].id);
+    }
+  }, [extractors, selectedExtractorId]);
 
   const handleManualSync = async (id: string) => {
     try {
@@ -53,6 +72,9 @@ export const DashboardSlide: React.FC<DashboardSlideProps> = ({
       setSyncFeedback((prev) => ({ ...prev, [id]: "" }));
 
       await onRunScan(id);
+      const page = await onLoadOperations(id);
+      setOperationRowsByExtractorId((prev) => ({ ...prev, [id]: page.operations }));
+      setOperationCursorByExtractorId((prev) => ({ ...prev, [id]: page.nextCursor }));
 
       setSyncFeedback((prev) => ({ ...prev, [id]: "Scan completed! Check updated records below." }));
     } catch (error: any) {
@@ -88,6 +110,9 @@ export const DashboardSlide: React.FC<DashboardSlideProps> = ({
       setIsSavingSubject(true);
       setSubjectFeedback("Searching Gmail, running Gemini, and extracting with the current schema...");
       const result = await onAddSubject(id, subject);
+      const page = await onLoadOperations(id);
+      setOperationRowsByExtractorId((prev) => ({ ...prev, [id]: page.operations }));
+      setOperationCursorByExtractorId((prev) => ({ ...prev, [id]: page.nextCursor }));
       setNewSubjectValue("");
       setSubjectFeedback(result.message);
     } catch (err: any) {
@@ -97,12 +122,76 @@ export const DashboardSlide: React.FC<DashboardSlideProps> = ({
     }
   };
 
-  // If no initial selected id but extractors loaded, bind the first one
-  if (extractors.length > 0 && !selectedExtractorId) {
-    setSelectedExtractorId(extractors[0].id);
-  }
+  const handleDeleteExtractor = async (id: string, name: string) => {
+    const shouldDelete = window.confirm(`Delete extractor "${name}"? This will remove its schema, subjects, and parsed records.`);
+
+    if (!shouldDelete) {
+      return;
+    }
+
+    try {
+      setDeletingIds((prev) => {
+        const next = new Set(prev);
+        next.add(id);
+        return next;
+      });
+      await onDeleteExtractor(id);
+    } finally {
+      setDeletingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+    }
+  };
 
   const selectedExtractor = extractors.find((e) => e.id === selectedExtractorId);
+  const selectedOperationRows = selectedExtractor
+    ? operationRowsByExtractorId[selectedExtractor.id] || selectedExtractor.extractions || []
+    : [];
+  const selectedOperationCursor = selectedExtractor ? operationCursorByExtractorId[selectedExtractor.id] : null;
+
+  useEffect(() => {
+    if (!selectedExtractorId || operationRowsByExtractorId[selectedExtractorId]) return;
+
+    let isMounted = true;
+    setLoadingOperationsId(selectedExtractorId);
+    onLoadOperations(selectedExtractorId)
+      .then((page) => {
+        if (!isMounted) return;
+        setOperationRowsByExtractorId((prev) => ({ ...prev, [selectedExtractorId]: page.operations }));
+        setOperationCursorByExtractorId((prev) => ({ ...prev, [selectedExtractorId]: page.nextCursor }));
+      })
+      .catch((error) => {
+        console.error(error);
+      })
+      .finally(() => {
+        if (isMounted) {
+          setLoadingOperationsId(null);
+        }
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [selectedExtractorId, operationRowsByExtractorId, onLoadOperations]);
+
+  const handleLoadMoreOperations = async (id: string) => {
+    const cursor = operationCursorByExtractorId[id];
+    if (!cursor) return;
+
+    setLoadingOperationsId(id);
+    try {
+      const page = await onLoadOperations(id, cursor);
+      setOperationRowsByExtractorId((prev) => ({
+        ...prev,
+        [id]: [...(prev[id] || []), ...page.operations],
+      }));
+      setOperationCursorByExtractorId((prev) => ({ ...prev, [id]: page.nextCursor }));
+    } finally {
+      setLoadingOperationsId(null);
+    }
+  };
 
   return (
     <div className="space-y-6" id="dashboard-workbench">
@@ -152,6 +241,7 @@ export const DashboardSlide: React.FC<DashboardSlideProps> = ({
               {extractors.map((ext) => {
                 const isSelected = ext.id === selectedExtractorId;
                 const isSyncing = syncingIds.has(ext.id);
+                const isDeleting = deletingIds.has(ext.id);
                 const feedback = syncFeedback[ext.id];
                 const registeredSubjects = ext.subjects?.length ? ext.subjects : [{ id: `${ext.id}-legacy-query`, value: ext.query }];
 
@@ -172,7 +262,7 @@ export const DashboardSlide: React.FC<DashboardSlideProps> = ({
                           {ext.detectedType}
                         </span>
                         <span className="text-[10px] text-slate-400 font-mono">
-                          {ext.extractions.length} Records
+                          {ext.operationCount || ext.extractions.length} Records
                         </span>
                       </div>
                       <div>
@@ -188,7 +278,7 @@ export const DashboardSlide: React.FC<DashboardSlideProps> = ({
                       {/* Scan trigger */}
                       <button
                         onClick={() => handleManualSync(ext.id)}
-                        disabled={isSyncing}
+                        disabled={isSyncing || isDeleting}
                         className="py-1 px-3 rounded-lg bg-slate-900 border border-slate-950 hover:bg-black text-white font-bold text-[10px] transition-all flex items-center gap-1 cursor-pointer select-none"
                       >
                         {isSyncing ? <Loader2 className="w-2.5 h-2.5 animate-spin" /> : <Play className="w-2.5 h-2.5 fill-current" />}
@@ -201,11 +291,23 @@ export const DashboardSlide: React.FC<DashboardSlideProps> = ({
                           type="checkbox"
                           checked={ext.enabledSchedule}
                           onChange={(e) => onToggleSchedule(ext.id, e.target.checked)}
+                          disabled={isDeleting}
                           className="w-3.5 h-3.5 border-slate-300 text-indigo-600 focus:ring-indigo-500 rounded shrink-0 cursor-pointer"
                         />
                         <Calendar className="w-3 h-3 text-slate-400" />
                         <span>Schedule Run</span>
                       </label>
+
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteExtractor(ext.id, ext.name)}
+                        disabled={isDeleting}
+                        className="p-1.5 rounded-lg border border-red-100 bg-red-50 text-red-600 hover:bg-red-100 disabled:opacity-50 transition-all cursor-pointer select-none"
+                        title="Delete extractor"
+                        aria-label={`Delete extractor ${ext.name}`}
+                      >
+                        {isDeleting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
+                      </button>
                     </div>
 
                     {feedback && (
@@ -350,55 +452,70 @@ export const DashboardSlide: React.FC<DashboardSlideProps> = ({
                       </div>
                     </div>
 
-                    {selectedExtractor.extractions.length === 0 ? (
+                    {loadingOperationsId === selectedExtractor.id && selectedOperationRows.length === 0 ? (
+                      <div className="text-center py-10 font-medium text-slate-655 text-xs bg-slate-55/20 bg-slate-50 border border-dashed border-slate-200 rounded-2xl">
+                        Loading parsed operations...
+                      </div>
+                    ) : selectedOperationRows.length === 0 ? (
                       <div className="text-center py-10 font-medium text-slate-655 text-xs bg-slate-55/20 bg-slate-50 border border-dashed border-slate-200 rounded-2xl">
                         No rows reside inside this extractor store yet. Press "Sync Box" to crawler.
                       </div>
                     ) : (
-                      <div className="overflow-x-auto border border-slate-100 rounded-2xl max-h-[450px]" style={{ scrollbarWidth: "thin" }}>
-                        <table className="w-full text-left border-collapse min-w-[600px]">
-                          <thead>
-                            <tr className="bg-slate-50 border-b border-slate-100 text-[10px] font-extrabold uppercase text-slate-450 text-slate-400 tracking-wider">
-                              <th className="py-3 px-4">Subject</th>
-                              <th className="py-3 px-4">From</th>
-                              <th className="py-3 px-4">Date</th>
-                              {/* Dynamic payload schema headers */}
-                              {selectedExtractor.schemaFields.map((field) => (
-                                <th key={field.fieldName} className="py-3 px-4 text-indigo-700 font-mono">
-                                  {field.fieldName}
-                                </th>
-                              ))}
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-slate-55 divide-slate-100 text-xs text-slate-655">
-                            {selectedExtractor.extractions.map((rec) => (
-                              <tr key={rec.id} className="hover:bg-slate-50/40 select-all">
-                                <td className="py-3 px-4 font-bold text-slate-800 max-w-[180px] truncate" title={rec.subject}>
-                                  {rec.subject}
-                                </td>
-                                <td className="py-3 px-4 max-w-[150px] truncate" title={rec.from}>
-                                  {rec.from.split("<")[0].trim() || rec.from}
-                                </td>
-                                <td className="py-3 px-4 whitespace-nowrap text-[10px] text-slate-400">
-                                  {rec.date.split(" ")[0]}
-                                </td>
-                                {/* Dynamic payload parsed cell values */}
-                                {selectedExtractor.schemaFields.map((field) => {
-                                  const cellVal = rec.extractedData[field.fieldName];
-                                  const displayVal = cellVal !== undefined && cellVal !== null
-                                    ? (typeof cellVal === "object" ? JSON.stringify(cellVal) : String(cellVal))
-                                    : "";
-
-                                  return (
-                                    <td key={field.fieldName} className="py-3 px-4 font-mono text-[11px] text-slate-700 select-text bg-indigo-50/10">
-                                      {displayVal}
-                                    </td>
-                                  );
-                                })}
+                      <div className="space-y-3">
+                        <div className="overflow-x-auto border border-slate-100 rounded-2xl max-h-[450px]" style={{ scrollbarWidth: "thin" }}>
+                          <table className="w-full text-left border-collapse min-w-[600px]">
+                            <thead>
+                              <tr className="bg-slate-50 border-b border-slate-100 text-[10px] font-extrabold uppercase text-slate-450 text-slate-400 tracking-wider">
+                                <th className="py-3 px-4">Subject</th>
+                                <th className="py-3 px-4">From</th>
+                                <th className="py-3 px-4">Date</th>
+                                {selectedExtractor.schemaFields.map((field) => (
+                                  <th key={field.fieldName} className="py-3 px-4 text-indigo-700 font-mono">
+                                    {field.fieldName}
+                                  </th>
+                                ))}
                               </tr>
-                            ))}
-                          </tbody>
-                        </table>
+                            </thead>
+                            <tbody className="divide-y divide-slate-55 divide-slate-100 text-xs text-slate-655">
+                              {selectedOperationRows.map((rec) => (
+                                <tr key={rec.id} className="hover:bg-slate-50/40 select-all">
+                                  <td className="py-3 px-4 font-bold text-slate-800 max-w-[180px] truncate" title={rec.subject}>
+                                    {rec.subject}
+                                  </td>
+                                  <td className="py-3 px-4 max-w-[150px] truncate" title={rec.from}>
+                                    {rec.from.split("<")[0].trim() || rec.from}
+                                  </td>
+                                  <td className="py-3 px-4 whitespace-nowrap text-[10px] text-slate-400">
+                                    {rec.date.split(" ")[0]}
+                                  </td>
+                                  {selectedExtractor.schemaFields.map((field) => {
+                                    const cellVal = rec.extractedData[field.fieldName];
+                                    const displayVal = cellVal !== undefined && cellVal !== null
+                                      ? (typeof cellVal === "object" ? JSON.stringify(cellVal) : String(cellVal))
+                                      : "";
+
+                                    return (
+                                      <td key={field.fieldName} className="py-3 px-4 font-mono text-[11px] text-slate-700 select-text bg-indigo-50/10">
+                                        {displayVal}
+                                      </td>
+                                    );
+                                  })}
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                        {selectedOperationCursor && (
+                          <button
+                            type="button"
+                            onClick={() => handleLoadMoreOperations(selectedExtractor.id)}
+                            disabled={loadingOperationsId === selectedExtractor.id}
+                            className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-[11px] font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-60"
+                          >
+                            {loadingOperationsId === selectedExtractor.id && <Loader2 className="w-3 h-3 animate-spin" />}
+                            <span>Load 20 more</span>
+                          </button>
+                        )}
                       </div>
                     )}
                   </div>
