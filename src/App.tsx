@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { Key, AlertCircle, RefreshCw, Cpu, LogOut, PlusCircle, Bug } from "lucide-react";
+import { Key, AlertCircle, RefreshCw, LogOut, PlusCircle, Bug, LogIn } from "lucide-react";
 import { EmailMessage, AnalysisResponse, SchemaField, Extractor, UserProfile, AddExtractorSubjectResponse } from "./types";
 import { createBackendHeadersForSession } from "./firebase/createBackendHeadersForSession";
 import type { FirebaseAuthSession } from "./firebase/FirebaseAuthSession";
@@ -679,17 +679,22 @@ export default function App() {
                 </button>
               </div>
             ) : (
-              <div className="flex items-center gap-1.5 bg-slate-100 px-3 py-1 border border-slate-200/60 rounded-full select-none text-[10px] font-bold text-slate-500 uppercase tracking-widest">
-                <Cpu className="w-3.5 h-3.5 text-indigo-500 animate-pulse" />
-                <span>System Ready</span>
-              </div>
+              <button
+                type="button"
+                onClick={handleConnect}
+                disabled={isLoggingIn}
+                className="h-10 px-3 sm:px-4 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 disabled:bg-slate-100 text-slate-700 text-xs font-extrabold transition-all cursor-pointer inline-flex items-center gap-2"
+              >
+                <LogIn className="w-4 h-4 text-emerald-600" />
+                <span>{isLoggingIn ? "Abriendo..." : "Iniciar sesion"}</span>
+              </button>
             )}
           </div>
         </div>
       </header>
 
       {/* Slide Navigation step bar (Visible when Firebase Auth client config exists) */}
-      {isFirebaseAuthConfigured && (
+      {isFirebaseAuthConfigured && firebaseSession && (
         <div className="max-w-4xl mx-auto px-4 mt-6">
           <div className="bg-white border border-slate-200 rounded-2xl p-3.5 flex items-center justify-between shadow-xs select-none">
             {stepsList.map((step) => {

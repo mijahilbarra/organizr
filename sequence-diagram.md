@@ -16,7 +16,8 @@ sequenceDiagram
 
   User->>Frontend: Abre la app
   Frontend->>Frontend: Lee configuracion VITE_FIREBASE_*
-  User->>Frontend: Presiona Sign in with Google o abre menu Usuario, Preferencias, Conectar Gmail
+  Frontend-->>User: Muestra landing con beneficios y CTA Crear cuenta o Iniciar sesion
+  User->>Frontend: Presiona Crear cuenta o Iniciar sesion
   Frontend->>FirebaseAuth: signInWithPopup(GoogleProvider + gmail.readonly)
   FirebaseAuth->>GoogleProvider: Solicita identidad y scope Gmail readonly
   User->>GoogleProvider: Autoriza cuenta y permisos
@@ -35,7 +36,7 @@ sequenceDiagram
   Frontend->>Function: listExtractors() con Authorization Firebase
   Function->>Firestore: Consulta extractors donde userId = uid
   Function-->>Frontend: Devuelve extractores
-  Frontend-->>User: Muestra dashboard y opcion de crear extractor
+  Frontend-->>User: Oculta landing y muestra dashboard con opcion de crear extractor
   User->>Frontend: Abre el menu Avatar y entra a /profile
   Frontend-->>User: Muestra ProfileSlide fuera del flujo principal
 ```
