@@ -4,7 +4,6 @@ import { motion } from "motion/react";
 import { SchemaField } from "../../types";
 
 interface SchemaSlideProps {
-  detectedType: string;
   explanation: string;
   schemaFields: SchemaField[];
   setSchemaFields: (fields: SchemaField[]) => void;
@@ -17,7 +16,6 @@ interface SchemaSlideProps {
  * Prompts user to audit Gemini's analyzed variables and add or tweak custom schema fields.
  */
 export const SchemaSlide: React.FC<SchemaSlideProps> = ({
-  detectedType,
   explanation,
   schemaFields,
   setSchemaFields,
@@ -27,6 +25,7 @@ export const SchemaSlide: React.FC<SchemaSlideProps> = ({
   const [newFieldName, setNewFieldName] = useState("");
   const [newFieldType, setNewFieldType] = useState("string");
   const [newFieldDesc, setNewFieldDesc] = useState("");
+  const [newFieldCalculation, setNewFieldCalculation] = useState("");
 
   const handleAddField = (e: React.FormEvent) => {
     e.preventDefault();
@@ -45,11 +44,14 @@ export const SchemaSlide: React.FC<SchemaSlideProps> = ({
       fieldType: newFieldType,
       description: newFieldDesc.trim() || "Manual custom field.",
       exampleValue: "(Set after execution run)",
+      calculation: newFieldType === "computed" ? newFieldCalculation.trim() : undefined,
+      computedPrompt: newFieldType === "computed" ? newFieldCalculation.trim() : undefined,
     };
 
     setSchemaFields([...schemaFields, newField]);
     setNewFieldName("");
     setNewFieldDesc("");
+    setNewFieldCalculation("");
   };
 
   const handleDeleteField = (fieldName: string) => {
@@ -78,15 +80,12 @@ export const SchemaSlide: React.FC<SchemaSlideProps> = ({
         <div className="space-y-1">
           <div className="flex items-center gap-2">
             <span className="text-xs uppercase tracking-wide font-extrabold text-indigo-500">Gemini Intelligence Report</span>
-            <span className="bg-indigo-100 text-indigo-700 font-bold text-[10px] px-2.5 py-0.5 rounded-full uppercase">
-              {detectedType}
-            </span>
           </div>
           <h3 className="text-xl font-extrabold text-slate-800">
             Recommended Extraction Blueprint
           </h3>
           <p className="text-slate-655 text-sm leading-relaxed">
-            {explanation || "The language model has analyzed your email structure and formulated a matching target database fields proposal."}
+            {explanation || "The language model has analyzed your email structure and formulated a matching target database fields proposal. Use the dashboard schema editor later to revise an existing extractor without recreating it."}
           </p>
         </div>
       </div>
@@ -121,6 +120,7 @@ export const SchemaSlide: React.FC<SchemaSlideProps> = ({
                   <th className="pb-3 pl-1">Variable</th>
                   <th className="pb-3">Type</th>
                   <th className="pb-3">Description</th>
+                  <th className="pb-3">Calculation</th>
                   <th className="pb-3 text-right">Actions</th>
                 </tr>
               </thead>
@@ -145,6 +145,7 @@ export const SchemaSlide: React.FC<SchemaSlideProps> = ({
                         <option value="number">number</option>
                         <option value="boolean">boolean</option>
                         <option value="array">array</option>
+                        <option value="computed">computed</option>
                       </select>
                     </td>
                     <td className="py-3 pr-2 align-middle text-slate-655 font-medium">
@@ -153,6 +154,16 @@ export const SchemaSlide: React.FC<SchemaSlideProps> = ({
                         value={field.description}
                         onChange={(e) => handleUpdateField(idx, { description: e.target.value })}
                         className="bg-transparent hover:bg-slate-100/50 focus:bg-white border-0 hover:border focus:border border-slate-200 rounded-lg px-2 py-1 text-xs w-full text-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-100"
+                      />
+                    </td>
+                    <td className="py-3 pr-2 align-middle text-slate-655 font-medium">
+                      <input
+                        type="text"
+                        value={field.computedPrompt || field.calculation || ""}
+                        onChange={(e) => handleUpdateField(idx, { calculation: e.target.value, computedPrompt: e.target.value })}
+                        disabled={field.fieldType !== "computed" && field.fieldType !== "calculated" && field.fieldType !== "calculado"}
+                        placeholder={field.fieldType === "computed" || field.fieldType === "calculated" || field.fieldType === "calculado" ? "Write the instruction for the LLM" : "-"}
+                        className="bg-transparent hover:bg-slate-100/50 focus:bg-white border-0 hover:border focus:border border-slate-200 rounded-lg px-2 py-1 text-xs w-36 text-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-100 disabled:text-slate-300 disabled:hover:bg-transparent"
                       />
                     </td>
                     <td className="py-3 text-right align-middle">
@@ -216,8 +227,23 @@ export const SchemaSlide: React.FC<SchemaSlideProps> = ({
                 <option value="number">number (Integer or floats)</option>
                 <option value="boolean">boolean (True or false toggle)</option>
                 <option value="array">array (Collection of items)</option>
+                <option value="computed">computed / calculado (LLM instruction only)</option>
               </select>
             </div>
+
+            {newFieldType === "computed" && (
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-400 uppercase">LLM Instruction</label>
+                <input
+                  type="text"
+                  value={newFieldCalculation}
+                  onChange={(e) => setNewFieldCalculation(e.target.value)}
+                  placeholder="e.g. infer the category from the email content and sender"
+                  className="w-full bg-slate-50 hover:bg-slate-50/70 focus:bg-white border border-slate-200 hover:border-slate-350 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-100 rounded-xl px-3.5 py-2.5 text-xs transition-all font-mono text-slate-700"
+                  id="new-field-calculation-input"
+                />
+              </div>
+            )}
 
             <div className="space-y-1">
               <label className="text-[10px] font-bold text-slate-400 uppercase">Brief Description</label>

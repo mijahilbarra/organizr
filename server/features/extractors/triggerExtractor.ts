@@ -9,9 +9,9 @@ import { loadExtractorContextById } from "./loadExtractorContextById";
 import { saveExtractor } from "./saveExtractor";
 import { createOperationRecord } from "../operations/createOperationRecord";
 import { listExistingOperationEmailIds } from "../operations/listExistingOperationEmailIds";
-import { saveNewOperationsForExtractor } from "../operations/saveNewOperationsForExtractor";
 import { sendExtractorRecordWebhooks } from "./sendExtractorRecordWebhooks";
 import { normalizeGmailSearchDateRange } from "../emails/normalizeGmailSearchDateRange";
+import { saveNewOperationsWithComputedFields } from "../computed/saveNewOperationsWithComputedFields";
 
 /**
  * Triggers a saved extractor to scrape the Gmail inbox for new, unparsed emails matching its selection query.
@@ -24,7 +24,7 @@ export async function triggerExtractor(req: Request, res: Response) {
 
   const token = await getPersistedGmailAccessToken(req);
   if (!token) {
-    return res.status(401).json({ error: "Connect Gmail before executing inbox scans. Stored Gmail access expires weekly." });
+    return res.status(401).json({ error: "Connect Gmail before executing inbox scans. Stored Gmail access is short-lived and must be renewed after it expires." });
   }
 
   try {
@@ -69,12 +69,16 @@ export async function triggerExtractor(req: Request, res: Response) {
       return res.json({ message: "Scan completed. No new matching records found.", extractor });
     }
 
-    const extractFn = compileExtractorScript(extractor.scriptCode);
-
     const newRecords: ExtractionRecord[] = [];
 
     for (const detailData of unparsedEmailsById.values()) {
       try {
+        const matchedSubject = extractorSubjects.find(
+          (registeredSubject) => detailData.subject.toLowerCase().includes(registeredSubject.value.toLowerCase()),
+        );
+        const subjectScriptCode = matchedSubject?.scriptCode;
+        const extractFn = compileExtractorScript(subjectScriptCode);
+
         // Run extraction logic
         const parsedData = extractFn(detailData.body, detailData.subject, detailData.from);
 
@@ -86,7 +90,11 @@ export async function triggerExtractor(req: Request, res: Response) {
       }
     }
 
-    const savedRecords = await saveNewOperationsForExtractor(extractor.id, firebaseUser.uid, newRecords);
+    const savedRecords = await saveNewOperationsWithComputedFields({
+      extractor,
+      userId: firebaseUser.uid,
+      records: newRecords,
+    });
     extractor.triggerCount += 1;
     extractor.operationCount += savedRecords.length;
     extractor.extractions = [];

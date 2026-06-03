@@ -12,5 +12,9 @@ export function createUserProfileFromFirebaseUser(firebaseUser: FirebaseRequestU
     createdAt: now,
     updatedAt: now,
     gmailConnection: null,
+    llmConsumeByMonth: {},
+    llmSettings: {
+      defaultProvider: "auto",
+    },
   };
 }

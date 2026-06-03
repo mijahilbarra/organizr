@@ -1,0 +1,82 @@
+{
+  "revision": 8,
+  "updated_at": "2026-06-01T20:07:54Z",
+  "updated_by": "frontend-settings@codex",
+  "board_file": "board.md",
+  "lock_dir": ".coord.lock",
+  "valid_statuses": [
+    "OPEN",
+    "IN_PROGRESS",
+    "READY_FOR_QA",
+    "CHANGES_REQUESTED",
+    "BLOCKED",
+    "DONE"
+  ],
+  "allowed_transitions": {
+    "OPEN": [
+      "IN_PROGRESS"
+    ],
+    "IN_PROGRESS": [
+      "READY_FOR_QA",
+      "BLOCKED"
+    ],
+    "READY_FOR_QA": [
+      "DONE",
+      "CHANGES_REQUESTED"
+    ],
+    "CHANGES_REQUESTED": [
+      "IN_PROGRESS"
+    ],
+    "BLOCKED": [
+      "IN_PROGRESS"
+    ],
+    "DONE": []
+  },
+  "tasks": {
+    "T-001": {
+      "owner": "backend-core",
+      "status": "IN_PROGRESS",
+      "depends_on": []
+    },
+    "T-002": {
+      "owner": "backend-core",
+      "status": "OPEN",
+      "depends_on": [
+        "T-001"
+      ]
+    },
+    "T-003": {
+      "owner": "gpt-actions",
+      "status": "IN_PROGRESS",
+      "depends_on": [
+        "T-001",
+        "T-002"
+      ]
+    },
+    "T-004": {
+      "owner": "gpt-actions",
+      "status": "IN_PROGRESS",
+      "depends_on": [
+        "T-003"
+      ]
+    },
+    "T-005": {
+      "owner": "frontend-settings",
+      "status": "BLOCKED",
+      "depends_on": [
+        "T-001"
+      ]
+    },
+    "T-006": {
+      "owner": "docs-tests",
+      "status": "OPEN",
+      "depends_on": [
+        "T-001",
+        "T-002",
+        "T-003",
+        "T-004",
+        "T-005"
+      ]
+    }
+  }
+}

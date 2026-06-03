@@ -7,11 +7,16 @@ import { sanitizeUserProfile } from "./sanitizeUserProfile";
 export async function connectGmail(req: Request, res: Response) {
   const profileContext = await loadRequiredUserProfileForRequest(req, res);
   const { accessToken } = req.body;
+  const expiresInSeconds = Number(req.body?.expiresInSeconds || 0);
 
   if (!profileContext) return;
 
   if (!accessToken || typeof accessToken !== "string") {
     return res.status(400).json({ error: "Missing Gmail access token." });
+  }
+
+  if (!Number.isFinite(expiresInSeconds) || expiresInSeconds <= 0) {
+    return res.status(400).json({ error: "Missing Gmail token expiration." });
   }
 
   try {
@@ -21,7 +26,7 @@ export async function connectGmail(req: Request, res: Response) {
     profile.gmailConnection = {
       accessToken,
       connectedAt: now,
-      expiresAt: getGmailTokenExpiresAt(),
+      expiresAt: getGmailTokenExpiresAt(expiresInSeconds),
     };
     profile.updatedAt = now;
 

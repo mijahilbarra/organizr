@@ -1,12 +1,11 @@
 import React, { useState } from "react";
-import { Code, Eye, FileText, CheckCircle2, Loader2, Sparkles, AlertCircle } from "lucide-react";
+import { Code, Eye, CheckCircle2, Loader2, AlertCircle } from "lucide-react";
 import { motion } from "motion/react";
-import { EmailMessage, SchemaField } from "../../types";
+import { EmailMessage } from "../../types";
 
 interface ScriptSlideProps {
   scriptCode: string;
   setScriptCode: (code: string) => void;
-  aiScriptCode: string;
   testEmails: EmailMessage[];
   backendHeaders: Record<string, string>;
   isSaving: boolean;
@@ -19,13 +18,11 @@ interface ScriptSlideProps {
 export const ScriptSlide: React.FC<ScriptSlideProps> = ({
   scriptCode,
   setScriptCode,
-  aiScriptCode,
   testEmails,
   backendHeaders,
   isSaving,
   onSaveExtractor,
 }) => {
-  const [activeTab, setActiveTab] = useState<"regex" | "ai">("regex");
   const [extractorName, setExtractorName] = useState("");
   const [testResults, setTestResults] = useState<any[] | null>(null);
   const [isTesting, setIsTesting] = useState(false);
@@ -82,60 +79,26 @@ export const ScriptSlide: React.FC<ScriptSlideProps> = ({
             <h3 className="text-sm font-extrabold text-slate-800 flex items-center gap-1.5">
               <Code className="w-4 h-4 text-slate-500" /> Code Assembly & Review
             </h3>
-            <div className="flex bg-slate-100 rounded-xl p-0.5 select-none text-xs">
-              <button
-                type="button"
-                onClick={() => setActiveTab("regex")}
-                className={`px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer ${
-                  activeTab === "regex" ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-800"
-                }`}
-              >
-                JS Extractor (Exact regex)
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveTab("ai")}
-                className={`px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer ${
-                  activeTab === "ai" ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-800"
-                }`}
-              >
-                AI Fallback (Gemini SDK)
-              </button>
-            </div>
           </div>
 
-          {activeTab === "regex" ? (
-            <div className="space-y-4 animate-fadeIn">
-              <p className="text-slate-500 text-xs leading-relaxed">
-                Gemini compiled a specialized, zero-cloud JavaScript routine mapping strict RegExp matches in memory. Correct any paths or logic directly if necessary.
-              </p>
-              <textarea
-                value={scriptCode}
-                onChange={(e) => setScriptCode(e.target.value)}
-                rows={16}
-                className="w-full font-mono text-xs bg-slate-900 text-slate-200 p-4 border border-slate-950 rounded-2xl focus:outline-none focus:ring-1 focus:ring-indigo-500 overflow-x-auto select-text shadow-sm"
-                style={{ scrollbarWidth: "thin" }}
-                id="script-code-editor"
-              />
-            </div>
-          ) : (
-            <div className="space-y-4 animate-fadeIn">
-              <p className="text-slate-500 text-xs leading-relaxed">
-                Alternative SDK implementation detailing how to configure structured output schemas for standard Node backend deployments using `@google/genai` packages.
-              </p>
-              <pre
-                className="w-full font-mono text-[11px] bg-slate-950 hover:bg-slate-950/95 text-green-400 p-4 rounded-2xl overflow-x-auto whitespace-pre select-text h-[350px] shadow-sm"
-                style={{ scrollbarWidth: "thin" }}
-              >
-                {aiScriptCode || "// Alternative script block did not generate."}
-              </pre>
-            </div>
-          )}
+          <div className="space-y-4 animate-fadeIn">
+            <p className="text-slate-500 text-xs leading-relaxed">
+              Gemini compiled a specialized, zero-cloud JavaScript routine mapping strict RegExp matches in memory. Correct any paths or logic directly if necessary.
+            </p>
+            <textarea
+              value={scriptCode}
+              onChange={(e) => setScriptCode(e.target.value)}
+              rows={16}
+              className="w-full font-mono text-xs bg-slate-900 text-slate-200 p-4 border border-slate-950 rounded-2xl focus:outline-none focus:ring-1 focus:ring-indigo-500 overflow-x-auto select-text shadow-sm"
+              style={{ scrollbarWidth: "thin" }}
+              id="script-code-editor"
+            />
+          </div>
 
           <div className="flex gap-3 justify-start border-t border-slate-100 pt-3">
             <button
               onClick={handleTestScript}
-              disabled={isTesting || activeTab !== "regex"}
+              disabled={isTesting}
               className="py-2.5 px-4 rounded-xl font-bold bg-indigo-50 hover:bg-indigo-100/70 border border-indigo-100 hover:border-indigo-200 text-indigo-600 text-xs transition-all flex items-center justify-center gap-1.5 select-none cursor-pointer"
               id="test-script-sandbox"
             >

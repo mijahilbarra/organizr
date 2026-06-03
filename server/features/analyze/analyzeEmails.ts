@@ -1,89 +1,29 @@
 import { Request, Response } from "express";
-import { GoogleGenAI, Type } from "@google/genai";
-import { runExtractorScript } from "./runExtractorScript";
-
-/**
- * Strips code markdown wrapper blocks is returned within JSON string fields
- */
-function cleanScriptCode(code: string): string {
-  if (!code) return "";
-  let clean = code.trim();
-  if (clean.startsWith("```")) {
-    clean = clean.replace(/^```[a-zA-Z]*\n/, "");
-    if (clean.endsWith("```")) {
-      clean = clean.slice(0, -3);
-    }
-  }
-  return clean.trim();
-}
-
-/**
- * Executes a proposed extractData script locally against actual emails
- */
-function executeScript(scriptCode: string, emails: any[]): { success: boolean; results: any[]; errors: string[] } {
-  try {
-    const results = runExtractorScript(scriptCode, emails);
-    const errors = results
-      .filter((result) => !result.success)
-      .map((result) => `Email ${result.emailId} execution failed: ${result.error}`);
-
-    return {
-      success: errors.length === 0,
-      results,
-      errors,
-    };
-  } catch (error: any) {
-    return {
-      success: false,
-      results: [],
-      errors: [`Script Compilation Error: ${error.message}`],
-    };
-  }
-}
-
-/**
- * Checks which schema-proposed fields were evaluated as null or empty in sample runs
- */
-function evaluateExtractionResults(results: any[], schemaFields: any[]) {
-  let totalOpportunities = 0;
-  let nullMatches = 0;
-  const details: string[] = [];
-
-  results.forEach((res, idx) => {
-    if (!res.success) {
-      details.push(`[Email #${idx + 1}] Exec failed: ${res.error}`);
-      return;
-    }
-    const data = res.extractedData || {};
-    details.push(`[Email #${idx + 1}] Parsed output: ${JSON.stringify(data)}`);
-    schemaFields.forEach((field: any) => {
-      totalOpportunities++;
-      const val = data[field.fieldName];
-      if (val === null || val === undefined || val === "") {
-        nullMatches++;
-        details.push(`  ❌ Field "${field.fieldName}" is NULL or EMPTY in this email. Review the content headers/body and adjust your regex patterns to be more tolerant of variations.`);
-      } else {
-        details.push(`  ✅ Field "${field.fieldName}" matched successfully: "${val}"`);
-      }
-    });
-  });
-
-  return {
-    totalOpportunities,
-    nullMatches,
-    feedback: details.join("\n"),
-  };
-}
+import { Type } from "@google/genai";
+import { loadRequiredUserProfileForRequest } from "../profile/loadRequiredUserProfileForRequest";
+import { createLlmProviderErrorResponse } from "../llm/createLlmProviderErrorResponse";
+import { generateResolvedLlmJsonContent } from "../llm/generateResolvedLlmJsonContent";
+import { isLlmProviderError } from "../llm/isLlmProviderError";
+import { cleanScriptCode } from "./cleanScriptCode";
+import { createSchemaFieldResponseSchema } from "./createSchemaFieldResponseSchema";
+import { evaluateExtractionResults } from "./evaluateExtractionResults";
+import { executeExtractorScriptForEmails } from "./executeExtractorScriptForEmails";
+import { formatEmailSamples } from "./formatEmailSamples";
+import { normalizeComputedSchemaFields } from "../computed/normalizeComputedSchemaFields";
 
 /**
  * Analyzes sample emails using the Gemini 3.5 Flash model under schema-structured generation
- * to recommend fields, draft standard RegExp parsers, and generate alternative Gemini SDK code.
+ * to recommend fields and draft a standard RegExp parser.
  */
 export async function analyzeEmails(req: Request, res: Response) {
+  const profileContext = await loadRequiredUserProfileForRequest(req, res);
+  if (!profileContext) return;
+
   const { emails } = req.body;
+  const { profile } = profileContext;
   const debugLogs: string[] = [];
   const addDebugLog = (message: string) => {
-    const line = `[Gemini Schema] ${message}`;
+    const line = `[LLM Schema] ${message}`;
     debugLogs.push(line);
     console.log(line);
   };
@@ -92,35 +32,10 @@ export async function analyzeEmails(req: Request, res: Response) {
     return res.status(400).json({ error: "A list of sample emails is required for analysis." });
   }
 
-  const geminiKey = process.env.GEMINI_API_KEY;
-  if (!geminiKey) {
-    return res.status(500).json({ error: "GEMINI_API_KEY is not configured on the server." });
-  }
-
   try {
     addDebugLog(`Preparing ${emails.length} selected email sample${emails.length === 1 ? "" : "s"} for schema discovery.`);
-    const ai = new GoogleGenAI({
-      apiKey: geminiKey,
-      httpOptions: {
-        headers: {
-          'User-Agent': 'organizr',
-        }
-      }
-    });
 
-    const emailSamplesText = emails.map((mail: any, idx: number) => {
-      return `
-=== SAMPLE EMAIL #${idx + 1} ===
-ID: ${mail.id}
-From: ${mail.from}
-Subject: ${mail.subject}
-Date: ${mail.date}
-Snippet: ${mail.snippet}
-Body content:
-${mail.body ? mail.body.substring(0, 4000) : mail.snippet}
-=============================
-`;
-    }).join("\n\n");
+    const emailSamplesText = formatEmailSamples(emails, "SAMPLE EMAIL");
 
     const prompt = `
 You are an expert system designed to analyze email payloads and propose clean data extraction schemas and script parsers.
@@ -131,26 +46,20 @@ Provide:
 2. An explanation of what structured information resides here.
 3. A robust dataset fields schema proposal (with camelCase naming, types, and descriptions).
 4. A highly robust, self-contained JavaScript script (\`extractData(body, subject, sender)\`) using native strings and RegExp patterns to safely extract these fields. Make sure it parses safely, avoids crash if certain parts are missing, and handles different formatting gracefully.
-5. An alternative script showing how to extract this data using Gemini AI's structured JSON outputs (with GoogleGenAI SDK in JS/TS).
-6. Simulation results for the provided sample emails.
+5. Simulation results for the provided sample emails.
 
 Email samples to analyze:
 ${emailSamplesText}
 `;
 
-    addDebugLog("Sending first schema discovery request to Gemini.");
-    const response = await ai.models.generateContent({
-      model: "gemini-3.5-flash",
-      contents: prompt,
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: {
+    addDebugLog("Sending first schema discovery request to the configured LLM provider.");
+    const response = await generateResolvedLlmJsonContent(
+      profile,
+      req.body?.provider,
+      prompt,
+      {
           type: Type.OBJECT,
           properties: {
-            detectedType: {
-              type: Type.STRING,
-              description: "The category/type of email detected (e.g., invoices, flight tickets, newsletter, support alert, registration)."
-            },
             explanation: {
               type: Type.STRING,
               description: "Brief analysis of the common layout structure, variable parts, and fields found in these emails."
@@ -158,24 +67,11 @@ ${emailSamplesText}
             schemaFields: {
               type: Type.ARRAY,
               description: "Extracted database fields schema recommendations",
-              items: {
-                type: Type.OBJECT,
-                properties: {
-                  fieldName: { type: Type.STRING, description: "camelCase name of the variable" },
-                  fieldType: { type: Type.STRING, description: "Data model Type (e.g., string, number, boolean, array)" },
-                  description: { type: Type.STRING, description: "Descriptive explanation of the field" },
-                  exampleValue: { type: Type.STRING, description: "Real value parsed from these samples" }
-                },
-                required: ["fieldName", "fieldType", "description", "exampleValue"]
-              }
+              items: createSchemaFieldResponseSchema()
             },
             scriptCode: {
               type: Type.STRING,
               description: "A complete self-contained executable Javascript string containing the function \`extractData(body, subject, sender)\`. Must return an object whose keys are exactly the specified schema fieldNames."
-            },
-            aiScriptCode: {
-              type: Type.STRING,
-              description: "A JavaScript code block demonstrating how to parse these same emails using Gemini AI and GoogleGenAI SDK."
             },
             sampleExtractedResults: {
               type: Type.ARRAY,
@@ -193,13 +89,15 @@ ${emailSamplesText}
               }
             }
           },
-          required: ["detectedType", "explanation", "schemaFields", "scriptCode", "aiScriptCode", "sampleExtractedResults"]
-        }
-      }
-    });
+          required: ["explanation", "schemaFields", "scriptCode", "sampleExtractedResults"]
+      },
+      addDebugLog,
+    );
 
+    addDebugLog(`Resolved analysis provider: ${response.providerLabel}.`);
     const text = response.text || "{}";
     let resultObj = JSON.parse(text);
+    resultObj.schemaFields = normalizeComputedSchemaFields(resultObj.schemaFields || []);
     addDebugLog(`Gemini returned initial schema with ${resultObj.schemaFields?.length || 0} field${resultObj.schemaFields?.length === 1 ? "" : "s"}.`);
 
     // Dynamic Self-Debugging correction loop (max 2 refinements)
@@ -209,7 +107,7 @@ ${emailSamplesText}
 
     while (loopCount < maxLoops) {
       const scriptCode = cleanScriptCode(currentResult.scriptCode);
-      const execution = executeScript(scriptCode, emails);
+      const execution = executeExtractorScriptForEmails(scriptCode, emails);
       const evalReport = evaluateExtractionResults(execution.results, currentResult.schemaFields);
 
       addDebugLog(`Validation pass ${loopCount + 1}: ${evalReport.nullMatches} empty value${evalReport.nullMatches === 1 ? "" : "s"} across ${evalReport.totalOpportunities} field checks; ${execution.errors.length} execution error${execution.errors.length === 1 ? "" : "s"}.`);
@@ -256,31 +154,19 @@ Deliver a fully repaired schema and updated scriptCode that passes all sample te
 `;
 
       try {
-        const refineResponse = await ai.models.generateContent({
-          model: "gemini-3.5-flash",
-          contents: refinementPrompt,
-          config: {
-            responseMimeType: "application/json",
-            responseSchema: {
+        const refineResponse = await generateResolvedLlmJsonContent(
+          profile,
+          req.body?.provider,
+          refinementPrompt,
+          {
               type: Type.OBJECT,
               properties: {
-                detectedType: { type: Type.STRING },
                 explanation: { type: Type.STRING },
                 schemaFields: {
                   type: Type.ARRAY,
-                  items: {
-                    type: Type.OBJECT,
-                    properties: {
-                      fieldName: { type: Type.STRING },
-                      fieldType: { type: Type.STRING },
-                      description: { type: Type.STRING },
-                      exampleValue: { type: Type.STRING }
-                    },
-                    required: ["fieldName", "fieldType", "description", "exampleValue"]
-                  }
+                  items: createSchemaFieldResponseSchema()
                 },
                 scriptCode: { type: Type.STRING, description: "Fully corrected regular-expression parsing function extractData(body, subject, sender)" },
-                aiScriptCode: { type: Type.STRING },
                 sampleExtractedResults: {
                   type: Type.ARRAY,
                   items: {
@@ -293,16 +179,17 @@ Deliver a fully repaired schema and updated scriptCode that passes all sample te
                   }
                 }
               },
-              required: ["detectedType", "explanation", "schemaFields", "scriptCode", "aiScriptCode", "sampleExtractedResults"]
-            }
-          }
-        });
+              required: ["explanation", "schemaFields", "scriptCode", "sampleExtractedResults"]
+          },
+          addDebugLog,
+        );
 
         const refinedText = refineResponse.text || "{}";
         const refinedObj = JSON.parse(refinedText);
+        refinedObj.schemaFields = normalizeComputedSchemaFields(refinedObj.schemaFields || []);
 
         const verifyCleanCode = cleanScriptCode(refinedObj.scriptCode);
-        const verifyExecution = executeScript(verifyCleanCode, emails);
+        const verifyExecution = executeExtractorScriptForEmails(verifyCleanCode, emails);
         const verifyReport = evaluateExtractionResults(verifyExecution.results, refinedObj.schemaFields);
 
         addDebugLog(`Refinement bounce ${loopCount} finished: empty values changed from ${evalReport.nullMatches} to ${verifyReport.nullMatches}.`);
@@ -328,9 +215,14 @@ Deliver a fully repaired schema and updated scriptCode that passes all sample te
     }
 
     currentResult.debugLogs = debugLogs;
+    currentResult.provider = response.provider;
     res.json(currentResult);
   } catch (err: any) {
-    console.error("Gemini analytical indexing breakdown:", err);
+    console.error("LLM analytical indexing breakdown:", err);
+    if (isLlmProviderError(err)) {
+      return res.status(err.status).json({ ...createLlmProviderErrorResponse(err), debugLogs });
+    }
+
     res.status(500).json({ error: err.message || "Something went wrong in the Gemini analysis process." });
   }
 }

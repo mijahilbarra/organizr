@@ -11,7 +11,7 @@ export async function searchEmails(req: Request, res: Response) {
   const subject = req.query.subject as string;
 
   if (!token) {
-    return res.status(401).json({ error: "Connect Gmail before searching messages. Stored Gmail access expires weekly." });
+    return res.status(401).json({ error: "Connect Gmail before searching messages. Stored Gmail access is short-lived and must be renewed after it expires." });
   }
 
   if (!subject) {
@@ -22,7 +22,7 @@ export async function searchEmails(req: Request, res: Response) {
     console.log(`[Gmail Crawler] Intending to search subject: ${subject}`);
     console.log(`[Gmail Crawler] OAuth Token present? ${!!token} Length: ${token?.length}`);
 
-    const emails = await fetchGmailEmailsBySubject(token, subject, 10);
+    const emails = await fetchGmailEmailsBySubject(token, subject, 3);
 
     if (emails.length === 0) {
       console.log(`[Gmail Crawler] Found 0 candidate messages for query.`);

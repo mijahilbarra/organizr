@@ -8,7 +8,7 @@ export const getGmailConnectionStatus = (profile: UserProfile | null) => {
 
   return {
     expiresAt,
-    expiresAtLabel: expiresAt ? new Date(expiresAt).toLocaleDateString() : "",
+    expiresAtLabel: expiresAt ? new Date(expiresAt).toLocaleString() : "",
     isActive,
     isExpired,
   };

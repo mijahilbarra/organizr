@@ -8,6 +8,8 @@ export interface ExtractionRecord {
   from: string;
   extractedData: Record<string, any>;
   timestamp: string;
+  computedStatus?: "pending" | "complete";
+  pendingComputedFields?: string[];
 }
 
 export interface ExtractorSubject {
@@ -15,6 +17,12 @@ export interface ExtractorSubject {
   value: string;
   createdAt: string;
   lastScannedAt?: string;
+  scriptCode?: string;
+}
+
+export interface ExtractorSubjectScript {
+  subject: string;
+  scriptCode: string;
 }
 
 export interface Extractor {
@@ -23,10 +31,7 @@ export interface Extractor {
   name: string;
   query: string;
   subjects: ExtractorSubject[];
-  detectedType: string;
   explanation: string;
-  scriptCode: string;
-  aiScriptCode: string;
   schemaFields: SchemaField[];
   webhookUrl: string;
   enabledSchedule: boolean;
@@ -43,6 +48,21 @@ export interface GmailConnection {
   revokedAt?: string;
 }
 
+export interface LlmConsumeMonth {
+  requestCount: number;
+  promptTokenCount: number;
+  candidateTokenCount: number;
+  totalTokenCount: number;
+}
+
+export type LlmProvider = "auto" | "gemini" | "openai";
+
+export interface UserLlmSettings {
+  defaultProvider: LlmProvider;
+  geminiApiKey?: string;
+  openAiApiKey?: string;
+}
+
 export interface UserProfile {
   uid: string;
   email: string;
@@ -51,4 +71,6 @@ export interface UserProfile {
   createdAt: string;
   updatedAt: string;
   gmailConnection: GmailConnection | null;
+  llmConsumeByMonth: Record<string, LlmConsumeMonth>;
+  llmSettings: UserLlmSettings;
 }

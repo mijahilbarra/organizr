@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import { loadRequiredUserProfileForRequest } from "./loadRequiredUserProfileForRequest";
 import { saveUserProfile } from "./saveUserProfile";
 import { sanitizeUserProfile } from "./sanitizeUserProfile";
+import { updateUserLlmSettingsFromRequest } from "./updateUserLlmSettingsFromRequest";
 
 export async function updateProfile(req: Request, res: Response) {
   const { displayName, photoURL } = req.body;
@@ -18,6 +19,8 @@ export async function updateProfile(req: Request, res: Response) {
     if (typeof photoURL === "string") {
       profile.photoURL = photoURL.trim();
     }
+
+    updateUserLlmSettingsFromRequest(profile, req.body);
 
     profile.updatedAt = new Date().toISOString();
     await saveUserProfile(profile);

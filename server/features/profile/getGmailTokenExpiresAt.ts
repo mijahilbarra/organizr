@@ -1,5 +1,3 @@
-export function getGmailTokenExpiresAt(): string {
-  const expiresAt = new Date();
-  expiresAt.setDate(expiresAt.getDate() + 7);
-  return expiresAt.toISOString();
+export function getGmailTokenExpiresAt(expiresInSeconds: number): string {
+  return new Date(Date.now() + expiresInSeconds * 1000).toISOString();
 }

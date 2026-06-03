@@ -1,16 +1,18 @@
-import { GoogleGenAI, Type } from "@google/genai";
+import { Type } from "@google/genai";
 import { SchemaField } from "../../../src/types";
 import { GmailMessageDetail } from "../emails/fetchGmailMessageDetail";
-import { generateGeminiJsonContent } from "./generateGeminiJsonContent";
+import { createGeminiClient } from "../llm/createGeminiClient";
+import { generateGeminiJsonContent } from "../llm/generateGeminiJsonContent";
+import { formatEmailSamples } from "./formatEmailSamples";
 import { SchemaExtractionResult } from "./SchemaExtractionResult";
 
 interface ExistingSchemaContext {
   extractorName: string;
-  detectedType: string;
   explanation: string;
 }
 
 export async function extractEmailsWithSchema(
+  userId: string,
   emails: GmailMessageDetail[],
   schemaFields: SchemaField[],
   context: ExistingSchemaContext,
@@ -19,42 +21,19 @@ export async function extractEmailsWithSchema(
     return [];
   }
 
-  const geminiKey = process.env.GEMINI_API_KEY;
-  if (!geminiKey) {
-    throw new Error("GEMINI_API_KEY is not configured on the server.");
-  }
-
-  const ai = new GoogleGenAI({
-    apiKey: geminiKey,
-    httpOptions: {
-      headers: {
-        "User-Agent": "organizr",
-      },
-    },
-  });
+  const ai = createGeminiClient();
 
   const schemaText = schemaFields
     .map((field) => `- ${field.fieldName} (${field.fieldType}): ${field.description}. Example: ${field.exampleValue}`)
     .join("\n");
 
-  const emailSamplesText = emails.map((mail, idx) => `
-=== EMAIL #${idx + 1} ===
-ID: ${mail.id}
-From: ${mail.from}
-Subject: ${mail.subject}
-Date: ${mail.date}
-Snippet: ${mail.snippet}
-Body content:
-${mail.body ? mail.body.substring(0, 4000) : mail.snippet}
-=============================
-`).join("\n\n");
+  const emailSamplesText = formatEmailSamples(emails);
 
   const prompt = `
 You extract structured data from new Gmail messages for an existing extractor.
 Do not create a new schema. Do not rename fields. Use exactly the existing schema field names.
 
 Extractor name: ${context.extractorName}
-Detected type: ${context.detectedType}
 Existing explanation: ${context.explanation}
 
 Existing schema fields:
@@ -67,6 +46,7 @@ ${emailSamplesText}
 `;
 
   const response = await generateGeminiJsonContent(
+    userId,
     ai,
     prompt,
     {

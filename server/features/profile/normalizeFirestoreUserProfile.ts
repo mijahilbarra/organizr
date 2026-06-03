@@ -1,4 +1,5 @@
 import { UserProfile } from "../../types";
+import { normalizeUserLlmSettings } from "./normalizeUserLlmSettings";
 
 export function normalizeFirestoreUserProfile(id: string, data: unknown): UserProfile {
   const source = data && typeof data === "object" ? data as Partial<UserProfile> : {};
@@ -11,5 +12,7 @@ export function normalizeFirestoreUserProfile(id: string, data: unknown): UserPr
     createdAt: source.createdAt || "",
     updatedAt: source.updatedAt || "",
     gmailConnection: source.gmailConnection || null,
+    llmConsumeByMonth: source.llmConsumeByMonth || {},
+    llmSettings: normalizeUserLlmSettings(source.llmSettings),
   };
 }

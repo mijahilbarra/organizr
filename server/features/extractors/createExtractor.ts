@@ -1,12 +1,13 @@
 import { Request, Response } from "express";
-import { Extractor, ExtractionRecord } from "../../types";
+import { Extractor, ExtractionRecord, ExtractorSubjectScript } from "../../types";
 import { loadRequiredFirebaseUserFromRequest } from "../auth/loadRequiredFirebaseUserFromRequest";
 import { createExtractorSubject } from "./createExtractorSubject";
 import { getUniqueSubjectValues } from "./getUniqueSubjectValues";
 import { saveExtractor } from "./saveExtractor";
 import { createOperationRecord } from "../operations/createOperationRecord";
-import { saveNewOperationsForExtractor } from "../operations/saveNewOperationsForExtractor";
 import { sendExtractorRecordWebhooks } from "./sendExtractorRecordWebhooks";
+import { saveNewOperationsWithComputedFields } from "../computed/saveNewOperationsWithComputedFields";
+import { normalizeComputedSchemaFields } from "../computed/normalizeComputedSchemaFields";
 
 /**
  * Creates and persists a new email extractor containing layout descriptions,
@@ -19,10 +20,8 @@ export async function createExtractor(req: Request, res: Response) {
   const {
     name,
     query,
-    detectedType,
     explanation,
-    scriptCode,
-    aiScriptCode,
+    subjectScripts,
     schemaFields,
     subjects,
     webhookUrl,
@@ -31,8 +30,8 @@ export async function createExtractor(req: Request, res: Response) {
     initialResults,
   } = req.body;
 
-  if (!name || !query || !scriptCode || !schemaFields) {
-    return res.status(400).json({ error: "Missing required extractor definition parameters (name, query, scriptCode, or schema)." });
+  if (!name || !query || !Array.isArray(subjectScripts) || subjectScripts.length === 0 || !schemaFields) {
+    return res.status(400).json({ error: "Missing required extractor definition parameters (name, query, subjectScripts, or schema)." });
   }
 
   try {
@@ -42,6 +41,16 @@ export async function createExtractor(req: Request, res: Response) {
       ...(Array.isArray(subjects) ? subjects : []),
       query,
     ]);
+    const normalizedSubjectScripts: ExtractorSubjectScript[] = subjectScripts
+      .map((entry: any) => ({
+        subject: String(entry?.subject || "").trim(),
+        scriptCode: String(entry?.scriptCode || "").trim(),
+      }))
+      .filter((entry) => entry.subject && entry.scriptCode);
+
+    if (normalizedSubjectScripts.length === 0) {
+      return res.status(400).json({ error: "At least one subjectScripts pair is required." });
+    }
 
     // Build initial extractions from results
     const extractions: ExtractionRecord[] = [];
@@ -65,12 +74,12 @@ export async function createExtractor(req: Request, res: Response) {
       userId: firebaseUser.uid,
       name,
       query: subjectValues[0] || query,
-      subjects: subjectValues.map(createExtractorSubject),
-      detectedType: detectedType || "Custom",
+      subjects: subjectValues.map((value) => {
+        const scriptPair = normalizedSubjectScripts.find((entry) => entry.subject.toLowerCase() === value.toLowerCase()) || normalizedSubjectScripts[0];
+        return createExtractorSubject(value, scriptPair.scriptCode);
+      }),
       explanation: explanation || "",
-      scriptCode,
-      aiScriptCode: aiScriptCode || "",
-      schemaFields,
+      schemaFields: normalizeComputedSchemaFields(schemaFields),
       webhookUrl: webhookUrl || "",
       enabledSchedule: !!enabledSchedule,
       triggerCount: extractions.length > 0 ? 1 : 0,
@@ -80,7 +89,11 @@ export async function createExtractor(req: Request, res: Response) {
     };
 
     await saveExtractor(newExtractor);
-    const savedExtractions = await saveNewOperationsForExtractor(extractorId, firebaseUser.uid, extractions);
+    const savedExtractions = await saveNewOperationsWithComputedFields({
+      extractor: newExtractor,
+      userId: firebaseUser.uid,
+      records: extractions,
+    });
     newExtractor.operationCount = savedExtractions.length;
     newExtractor.extractions = savedExtractions;
 

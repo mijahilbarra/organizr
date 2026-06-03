@@ -1,0 +1,1679 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Organizr Custom GPT Actions",
+    "description": "GPT-safe endpoints for checking user readiness and creating extractors from Gmail messages.",
+    "version": "v1.0.0"
+  },
+  "servers": [
+    {
+      "url": "https://api-45fybwj2xq-uc.a.run.app"
+    }
+  ],
+  "security": [
+    {
+      "CustomGptOAuth": [
+        "profile",
+        "gmail",
+        "extractors"
+      ]
+    }
+  ],
+  "paths": {
+    "/api/gpt/session/capabilities": {
+      "get": {
+        "description": "Check whether the authenticated user can run Custom GPT actions.",
+        "operationId": "getGptSessionCapabilities",
+        "deprecated": false,
+        "responses": {
+          "200": {
+            "description": "The user is ready for GPT actions.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionCapabilitiesResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid, or expired Firebase ID token."
+          },
+          "409": {
+            "description": "User setup is incomplete and includes actionable next steps.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionCapabilitiesResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/gpt/extractors": {
+      "get": {
+        "operationId": "listGptExtractors",
+        "description": "List the authenticated user's extractors with GPT-safe summary fields only.",
+        "deprecated": false,
+        "responses": {
+          "200": {
+            "description": "Extractor summaries.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListGptExtractorsResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid, or expired Firebase ID token."
+          },
+          "500": {
+            "description": "Failed to load extractors.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GptActionResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/gpt/extractors/{extractorId}": {
+      "get": {
+        "operationId": "getGptExtractor",
+        "description": "Get one authenticated user's extractor with GPT-safe fields only.",
+        "deprecated": false,
+        "parameters": [
+          {
+            "name": "extractorId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Extractor details.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetGptExtractorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid, or expired Firebase ID token."
+          },
+          "404": {
+            "description": "Extractor not found."
+          },
+          "500": {
+            "description": "Failed to load extractor.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GptActionResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/gpt/extractor-from-subject": {
+      "post": {
+        "description": "Search Gmail by subject, analyze matching emails, and persist a reusable extractor.",
+        "operationId": "createExtractorFromGmailSubject",
+        "deprecated": false,
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "subject": {
+                    "type": "string",
+                    "description": "Gmail subject text to search for candidate messages."
+                  },
+                  "name": {
+                    "type": "string",
+                    "description": "Optional extractor display name."
+                  },
+                  "extractorId": {
+                    "type": "string",
+                    "description": "Optional existing extractor id. When provided, the analyzed subject is attached to that extractor instead of creating a new one."
+                  },
+                  "maxResults": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 20,
+                    "default": 1
+                  },
+                  "webhookUrl": {
+                    "type": "string",
+                    "format": "uri"
+                  },
+                  "enabledSchedule": {
+                    "type": "boolean",
+                    "default": false
+                  },
+                  "provider": {
+                    "type": "string",
+                    "enum": [
+                      "auto",
+                      "gemini",
+                      "openai",
+                      "customgpt"
+                    ],
+                    "default": "auto"
+                  }
+                },
+                "required": [
+                  "subject"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Extractor created, subject attached to an existing extractor, or Custom GPT manual analysis requested.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateExtractorFromSubjectResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GptActionResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid, or expired Firebase ID token."
+          },
+          "404": {
+            "description": "No Gmail messages matched the subject, or the requested extractor was not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GptActionResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "User setup is incomplete or the subject already exists on the target extractor.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GptActionResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Custom GPT orchestration failed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GptActionResponse"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Gmail analysis or extractor persistence failed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GptActionResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/gpt/extractor-from-analysis": {
+      "post": {
+        "description": "Persist an extractor using schema and parser analysis generated by Custom GPT.",
+        "operationId": "createExtractorFromCustomGptAnalysis",
+        "deprecated": false,
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "subject": {
+                    "type": "string"
+                  },
+                  "extractorId": {
+                    "type": "string",
+                    "description": "Optional existing extractor id. When provided, the analyzed subject is attached to that extractor instead of creating a new one."
+                  },
+                  "emails": {
+                    "type": "array",
+                    "items": {
+                      "type": "object"
+                    }
+                  },
+                  "analysis": {
+                    "type": "object",
+                    "additionalProperties": true,
+                    "properties": {
+                      "explanation": {
+                        "type": "string"
+                      },
+                      "schemaFields": {
+                        "type": "array",
+                        "items": {
+                          "type": "object"
+                        }
+                      },
+                      "scriptCode": {
+                        "type": "string"
+                      },
+                      "sampleExtractedResults": {
+                        "type": "array",
+                        "items": {
+                          "type": "object"
+                        }
+                      }
+                    },
+                    "required": [
+                      "schemaFields",
+                      "scriptCode"
+                    ]
+                  }
+                },
+                "required": [
+                  "subject",
+                  "analysis"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Extractor created or subject attached to an existing extractor.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateExtractorFromSubjectResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid Custom GPT analysis.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GptActionResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid, or expired OAuth bearer token."
+          },
+          "404": {
+            "description": "The requested extractor was not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GptActionResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The subject already exists on the target extractor.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GptActionResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Custom GPT persistence orchestration failed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GptActionResponse"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Extractor persistence failed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GptActionResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/gpt/tickets": {
+      "post": {
+        "operationId": "createGptTicket",
+        "description": "Create a new ticket for the currently signed-in user.",
+        "deprecated": false,
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "description": {
+                    "type": "string"
+                  },
+                  "urgency": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 5,
+                    "default": 3
+                  },
+                  "state": {
+                    "type": "string",
+                    "enum": [
+                      "backlog",
+                      "todo",
+                      "doing",
+                      "onreview",
+                      "done"
+                    ],
+                    "default": "backlog"
+                  }
+                },
+                "required": [
+                  "description"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Ticket created.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GptActionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GptActionResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid, or expired OAuth bearer token."
+          },
+          "500": {
+            "description": "Failed to create ticket.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GptActionResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/extractors/test-html": {
+      "post": {
+        "operationId": "testExtractorWithHtml",
+        "description": "Execute an extractor script against raw HTML and return the parser output.",
+        "deprecated": false,
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "scriptCode": {
+                    "type": "string"
+                  },
+                  "html": {
+                    "type": "string"
+                  },
+                  "subject": {
+                    "type": "string"
+                  },
+                  "from": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "scriptCode",
+                  "html"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Script executed successfully.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "output": {
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "output"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "450": {
+            "description": "Script execution failed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/extractors/{id}/subjects": {
+      "get": {
+        "description": "List the subject triggers registered on an existing extractor.",
+        "operationId": "listExtractorSubjectsForGpt",
+        "deprecated": false,
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Subjects for the extractor.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GptActionResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid, or expired Firebase ID token."
+          },
+          "404": {
+            "description": "Extractor not found."
+          }
+        }
+      },
+      "post": {
+        "description": "Add one subject trigger to an existing extractor.",
+        "operationId": "addExtractorSubjectForGpt",
+        "deprecated": false,
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "subject": {
+                    "type": "string",
+                    "description": "Gmail subject trigger to append to the extractor."
+                  },
+                  "scriptCode": {
+                    "type": "string",
+                    "description": "Parser function used for this subject."
+                  }
+                },
+                "required": [
+                  "subject",
+                  "scriptCode"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Subject added to the extractor.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GptActionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GptActionResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid, or expired Firebase ID token."
+          },
+          "404": {
+            "description": "Extractor not found."
+          },
+          "409": {
+            "description": "Subject already exists on this extractor.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GptActionResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/extractors/{id}/subjects/{subjectId}": {
+      "get": {
+        "description": "Get one subject trigger and parser metadata from an extractor.",
+        "operationId": "getExtractorSubjectForGpt",
+        "deprecated": false,
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "subjectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Subject loaded.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GptActionResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid, or expired Firebase ID token."
+          },
+          "404": {
+            "description": "Extractor or subject not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GptActionResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Failed to load subject.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GptActionResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "description": "Update the value or parser script attached to one extractor subject.",
+        "operationId": "updateExtractorSubjectForGpt",
+        "deprecated": false,
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "subjectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "subject": {
+                    "type": "string"
+                  },
+                  "scriptCode": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "subject"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Subject updated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GptActionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GptActionResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid, or expired Firebase ID token."
+          },
+          "404": {
+            "description": "Extractor or subject not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GptActionResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Failed to update subject.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GptActionResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "description": "Delete one subject trigger and its attached parser from an extractor.",
+        "operationId": "deleteExtractorSubjectForGpt",
+        "deprecated": false,
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "subjectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Subject deleted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GptActionResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid, or expired Firebase ID token."
+          },
+          "404": {
+            "description": "Extractor or subject not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GptActionResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Failed to delete subject.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GptActionResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/extractors/{id}/schema-edits": {
+      "post": {
+        "description": "Update an existing extractor schema and its subject parsers. Manual persistence accepts schemaFields plus subjectScripts or subjects, or a nested analysis object from Custom GPT.",
+        "operationId": "editExtractorSchemaForGpt",
+        "deprecated": false,
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "message": {
+                    "type": "string"
+                  },
+                  "messages": {
+                    "type": "array",
+                    "items": {
+                      "type": "object"
+                    }
+                  },
+                  "explanation": {
+                    "type": "string"
+                  },
+                  "analysis": {
+                    "type": "object",
+                    "additionalProperties": true,
+                    "properties": {
+                      "explanation": {
+                        "type": "string"
+                      },
+                      "schemaFields": {
+                        "type": "array",
+                        "items": {
+                          "type": "object"
+                        }
+                      },
+                      "scriptCode": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "schemaFields": {
+                    "type": "array",
+                    "items": {
+                      "type": "object"
+                    }
+                  },
+                  "subjectScripts": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "subject": {
+                          "type": "string"
+                        },
+                        "scriptCode": {
+                          "type": "string"
+                        },
+                        "validationSample": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "properties": {
+                            "body": {
+                              "type": "string"
+                            },
+                            "subject": {
+                              "type": "string"
+                            },
+                            "from": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "body"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "subject",
+                        "scriptCode"
+                      ]
+                    }
+                  },
+                  "subjects": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "subjectId": {
+                          "type": "string"
+                        },
+                        "subject": {
+                          "type": "string"
+                        },
+                        "value": {
+                          "type": "string"
+                        },
+                        "scriptCode": {
+                          "type": "string"
+                        },
+                        "validationSample": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "properties": {
+                            "body": {
+                              "type": "string"
+                            },
+                            "subject": {
+                              "type": "string"
+                            },
+                            "from": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "body"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "subject",
+                        "scriptCode"
+                      ]
+                    }
+                  },
+                  "provider": {
+                    "type": "string",
+                    "enum": [
+                      "auto",
+                      "gemini",
+                      "openai"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Extractor schema updated, or a manual follow-up payload was returned.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GptActionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GptActionResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid, or expired Firebase ID token."
+          },
+          "404": {
+            "description": "Extractor not found."
+          },
+          "500": {
+            "description": "Schema edit failed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GptActionResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/gpt/extractors/{extractorId}/computed/pending": {
+      "get": {
+        "operationId": "listPendingComputedOperationsForExtractor",
+        "description": "List operations that still have computed fields pending for one extractor.",
+        "deprecated": false,
+        "parameters": [
+          {
+            "name": "extractorId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Pending operations for the extractor.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProcessPendingComputedOperationsResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid, or expired OAuth bearer token."
+          },
+          "404": {
+            "description": "Extractor not found."
+          },
+          "500": {
+            "description": "Failed to list pending computed operations.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GptActionResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/gpt/extractors/{extractorId}/computed/pending/process": {
+      "post": {
+        "operationId": "processPendingComputedOperationsForExtractor",
+        "description": "Resolve pending computed fields for one extractor using an active LLM provider or a manual Custom GPT batch update.",
+        "deprecated": false,
+        "parameters": [
+          {
+            "name": "extractorId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 50,
+                    "default": 20
+                  },
+                  "updates": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "operationId": {
+                          "type": "string"
+                        },
+                        "extractedData": {
+                          "type": "object",
+                          "additionalProperties": true
+                        }
+                      },
+                      "required": [
+                        "operationId",
+                        "extractedData"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Pending operations processed, manual updates applied, or manual completion requested.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProcessPendingComputedOperationsResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid, or expired OAuth bearer token."
+          },
+          "404": {
+            "description": "Extractor not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GptActionResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Failed to process pending computed operations.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GptActionResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "CustomGptOAuth": {
+        "type": "oauth2",
+        "flows": {
+          "authorizationCode": {
+            "authorizationUrl": "https://api-45fybwj2xq-uc.a.run.app/oauth/authorize",
+            "tokenUrl": "https://api-45fybwj2xq-uc.a.run.app/oauth/token",
+            "scopes": {
+              "profile": "Identify the signed-in Organizr user.",
+              "gmail": "Use the user's connected Gmail data for requested searches.",
+              "extractors": "Create and update extractors owned by the user."
+            }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "GptActionCode": {
+        "type": "string",
+        "enum": [
+          "READY",
+          "AUTH_REQUIRED",
+          "GMAIL_CONNECTION_REQUIRED",
+          "LLM_PROVIDER_REQUIRED",
+          "TICKET_DESCRIPTION_REQUIRED",
+          "SUBJECT_REQUIRED",
+          "NO_EMAILS_FOUND",
+          "CUSTOM_GPT_ANALYSIS_REQUIRED",
+          "MANUAL_PAYLOAD_REQUIRED",
+          "PENDING_MANUAL_COMPLETION",
+          "ANALYSIS_FAILED",
+          "EXTRACTOR_NOT_FOUND",
+          "EXTRACTOR_CREATE_FAILED",
+          "EXTRACTOR_READ_FAILED",
+          "EXTRACTOR_EDIT_FAILED",
+          "EXTRACTOR_UPDATE_FAILED",
+          "SUBJECT_ALREADY_EXISTS",
+          "UNEXPECTED_ERROR"
+        ]
+      },
+      "LlmProviderCapability": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "available": {
+            "type": "boolean"
+          },
+          "source": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "user",
+              "server",
+              "chatgpt",
+              null
+            ]
+          },
+          "actionCode": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "actionUrl": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "available",
+          "source",
+          "actionCode",
+          "actionUrl"
+        ]
+      },
+      "GptCapabilities": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "authenticated": {
+            "type": "boolean"
+          },
+          "gmailConnected": {
+            "type": "boolean"
+          },
+          "llmAvailable": {
+            "type": "boolean"
+          },
+          "defaultProvider": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "auto",
+              "gemini",
+              "openai",
+              "customgpt",
+              null
+            ]
+          },
+          "providers": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "gemini": {
+                "$ref": "#/components/schemas/LlmProviderCapability"
+              },
+              "openai": {
+                "$ref": "#/components/schemas/LlmProviderCapability"
+              },
+              "customgpt": {
+                "$ref": "#/components/schemas/LlmProviderCapability"
+              }
+            }
+          },
+          "availableProviders": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "gemini",
+                "openai",
+                "customgpt"
+              ]
+            }
+          },
+          "supportedProviderModes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "auto",
+                "gemini",
+                "openai",
+                "customgpt"
+              ]
+            }
+          },
+          "actionUrl": {
+            "type": "string",
+            "format": "uri"
+          },
+          "nextSteps": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "authenticated",
+          "gmailConnected",
+          "llmAvailable",
+          "defaultProvider",
+          "providers",
+          "availableProviders",
+          "supportedProviderModes",
+          "actionUrl",
+          "nextSteps"
+        ]
+      },
+      "GptActionResponse": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "code": {
+            "$ref": "#/components/schemas/GptActionCode"
+          },
+          "message": {
+            "type": "string"
+          },
+          "capabilities": {
+            "$ref": "#/components/schemas/GptCapabilities"
+          }
+        },
+        "required": [
+          "ok",
+          "code",
+          "message"
+        ]
+      },
+      "SessionCapabilitiesResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/GptActionResponse"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "capabilities": {
+                "$ref": "#/components/schemas/GptCapabilities"
+              }
+            },
+            "required": [
+              "capabilities"
+            ]
+          }
+        ]
+      },
+      "CreateExtractorFromSubjectResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/GptActionResponse"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "subject": {
+                "type": "string"
+              },
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "create-extractor",
+                  "attach-subject",
+                  "customgpt-manual-analysis",
+                  "llm-analysis"
+                ]
+              },
+              "emailCount": {
+                "type": "integer"
+              },
+              "emails": {
+                "type": "array",
+                "items": {
+                  "type": "object"
+                }
+              },
+              "targetExtractor": {
+                "type": "string"
+              },
+              "expectedAnalysisShape": {
+                "type": "object",
+                "additionalProperties": true
+              },
+              "created": {
+                "type": "boolean"
+              },
+              "targetExtractorUpdated": {
+                "type": "boolean"
+              },
+              "schemaChanged": {
+                "type": "boolean"
+              },
+              "extractor": {
+                "type": "object",
+                "description": "Persisted extractor owned by the authenticated user."
+              }
+            },
+            "required": [
+              "subject"
+            ]
+          }
+        ]
+      },
+      "ExtractionRecord": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "emailId": {
+            "type": "string"
+          },
+          "subject": {
+            "type": "string"
+          },
+          "date": {
+            "type": "string"
+          },
+          "from": {
+            "type": "string"
+          },
+          "extractedData": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "timestamp": {
+            "type": "string"
+          },
+          "computedStatus": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "complete"
+            ]
+          },
+          "pendingComputedFields": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "emailId",
+          "subject",
+          "date",
+          "from",
+          "extractedData",
+          "timestamp"
+        ]
+      },
+      "ProcessPendingComputedOperationsResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/GptActionResponse"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "extractorId": {
+                "type": "string"
+              },
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "llm-processing",
+                  "manual-updates",
+                  "manual-completion-required",
+                  "extractor-scope"
+                ]
+              },
+              "processedCount": {
+                "type": "integer"
+              },
+              "remainingPendingCount": {
+                "type": "integer"
+              },
+              "pendingCount": {
+                "type": "integer"
+              },
+              "operations": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ExtractionRecord"
+                }
+              }
+            },
+            "required": [
+              "extractorId",
+              "mode"
+            ]
+          }
+        ]
+      },
+      "GptExtractorSubject": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "lastScannedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "value",
+          "createdAt",
+          "lastScannedAt"
+        ]
+      },
+      "GptSafeExtractor": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "query": {
+            "type": "string"
+          },
+          "explanation": {
+            "type": "string"
+          },
+          "schemaFields": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "subjects": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GptExtractorSubject"
+            }
+          },
+          "enabledSchedule": {
+            "type": "boolean"
+          },
+          "triggerCount": {
+            "type": "integer"
+          },
+          "operationCount": {
+            "type": "integer"
+          },
+          "createdAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "query",
+          "explanation",
+          "schemaFields",
+          "subjects",
+          "enabledSchedule",
+          "triggerCount",
+          "operationCount",
+          "createdAt"
+        ]
+      },
+      "ListGptExtractorsResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/GptActionResponse"
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "count": {
+                "type": "integer"
+              },
+              "extractors": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/GptSafeExtractor"
+                }
+              }
+            },
+            "required": [
+              "count",
+              "extractors"
+            ]
+          }
+        ]
+      },
+      "GetGptExtractorResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/GptActionResponse"
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "extractorId": {
+                "type": "string"
+              },
+              "extractor": {
+                "$ref": "#/components/schemas/GptSafeExtractor"
+              }
+            },
+            "required": [
+              "extractorId",
+              "extractor"
+            ]
+          }
+        ]
+      }
+    }
+  }
+}

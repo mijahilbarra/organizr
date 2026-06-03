@@ -4,10 +4,10 @@
   "type": "module",
   "main": "lib/index.js",
   "engines": {
-    "node": "20"
+    "node": "22"
   },
   "scripts": {
-    "build": "esbuild index.ts --bundle --platform=node --format=esm --packages=external --outfile=lib/index.js"
+    "build": "node ../scripts/sync-openapi.mjs && esbuild index.ts --bundle --platform=node --format=esm --packages=external --outfile=lib/index.js"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

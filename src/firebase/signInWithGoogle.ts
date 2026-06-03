@@ -12,10 +12,19 @@ export const signInWithGoogle = async (): Promise<FirebaseAuthSession> => {
   const result = await signInWithPopup(getFirebaseAuth(), provider);
   const credential = GoogleAuthProvider.credentialFromResult(result);
   const firebaseIdToken = await result.user.getIdToken();
+  const tokenResponse = result as typeof result & {
+    _tokenResponse?: {
+      expiresIn?: string;
+    };
+  };
+  const expiresInSeconds = Number(tokenResponse._tokenResponse?.expiresIn || 0);
 
   return {
     user: result.user,
     firebaseIdToken,
     gmailAccessToken: credential?.accessToken || null,
+    gmailAccessTokenExpiresInSeconds: Number.isFinite(expiresInSeconds) && expiresInSeconds > 0
+      ? expiresInSeconds
+      : null,
   };
 };

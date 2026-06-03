@@ -1,7 +1,7 @@
 import React, { useCallback, useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { Key, AlertCircle, RefreshCw, PlusCircle, Bug, LogIn } from "lucide-react";
-import { EmailMessage, AnalysisResponse, SchemaField, Extractor, UserProfile, AddExtractorSubjectResponse, ExtractorOperationsPage } from "./types";
+import { EmailMessage, AnalysisResponse, SchemaField, Extractor, UserProfile, AddExtractorSubjectResponse, ExtractorOperationsPage, ExtractorSchemaEditMessage, ExtractorSchemaEditProvider, LlmProviderPreference } from "./types";
 import { createBackendHeadersForSession } from "./firebase/createBackendHeadersForSession";
 import type { FirebaseAuthSession } from "./firebase/FirebaseAuthSession";
 import { hasFirebaseConfig } from "./firebase/hasFirebaseConfig";
@@ -27,12 +27,14 @@ import { isProfileRoutePath } from "./features/profile/isProfileRoutePath";
 import { pushProfileRoute } from "./features/profile/pushProfileRoute";
 import { pushWorkspaceRoute } from "./features/profile/pushWorkspaceRoute";
 import { postExtractorUpdate } from "./features/dashboard/postExtractorUpdate";
+import { postExtractorSchemaEdit } from "./features/dashboard/postExtractorSchemaEdit";
 import { pushExtractorDetailRoute } from "./features/dashboard/pushExtractorDetailRoute";
 import { pushExtractorsRoute } from "./features/dashboard/pushExtractorsRoute";
 import { TicketsSlide } from "./features/tickets/TicketsSlide";
 import { isTicketsRoutePath } from "./features/tickets/isTicketsRoutePath";
 import { pushTicketsRoute } from "./features/tickets/pushTicketsRoute";
 import { ConfirmActionModal } from "./features/shared/ConfirmActionModal";
+import { createGeminiRetryWaitLog } from "./features/shared/createGeminiRetryWaitLog";
 
 export default function App() {
   // Global states
@@ -143,11 +145,15 @@ export default function App() {
     return data.profile as UserProfile;
   };
 
-  const persistGmailConnection = async (activeSession: FirebaseAuthSession, accessToken: string) => {
+  const persistGmailConnection = async (
+    activeSession: FirebaseAuthSession,
+    accessToken: string,
+    expiresInSeconds: number,
+  ) => {
     const res = await fetch("/api/profile/gmail", {
       method: "POST",
       headers: createBackendHeadersForSession(activeSession, true),
-      body: JSON.stringify({ accessToken }),
+      body: JSON.stringify({ accessToken, expiresInSeconds }),
     });
 
     if (!res.ok) {
@@ -239,8 +245,8 @@ export default function App() {
       const session = await signInWithGoogle();
       setFirebaseSession(session);
       await fetchProfile(session);
-      if (session.gmailAccessToken) {
-        await persistGmailConnection(session, session.gmailAccessToken);
+      if (session.gmailAccessToken && session.gmailAccessTokenExpiresInSeconds) {
+        await persistGmailConnection(session, session.gmailAccessToken, session.gmailAccessTokenExpiresInSeconds);
       }
       await fetchExtractors(session);
       if (isExtractorCreateRoute) {
@@ -266,7 +272,10 @@ export default function App() {
       if (!session.gmailAccessToken) {
         throw new Error("Google did not return a Gmail access token. Please approve Gmail readonly access.");
       }
-      await persistGmailConnection(session, session.gmailAccessToken);
+      if (!session.gmailAccessTokenExpiresInSeconds) {
+        throw new Error("Google did not return a Gmail token expiration. Reconnect Gmail and approve access again.");
+      }
+      await persistGmailConnection(session, session.gmailAccessToken, session.gmailAccessTokenExpiresInSeconds);
     } catch (err: any) {
       setErrorText(err.message || "Failed to connect Gmail.");
     } finally {
@@ -275,7 +284,15 @@ export default function App() {
     }
   };
 
-  const handleUpdateProfile = async (updates: { displayName: string; photoURL: string }) => {
+  const handleUpdateProfile = async (updates: {
+    displayName: string;
+    photoURL: string;
+    llmSettings?: {
+      defaultProvider?: LlmProviderPreference;
+      geminiApiKey?: string;
+      openAiApiKey?: string;
+    };
+  }) => {
     setIsSavingProfile(true);
     setErrorText(null);
     try {
@@ -464,6 +481,8 @@ export default function App() {
   const handleAnalyze = async () => {
     if (selectedEmailIds.size === 0) return;
 
+    let retryLogInterval: ReturnType<typeof setInterval> | null = null;
+
     try {
       setIsAnalyzing(true);
       setErrorText(null);
@@ -472,6 +491,29 @@ export default function App() {
         "[Gemini Schema] Preparing selected email samples for schema discovery.",
         "[Gemini Schema] Waiting for Gemini to draft fields and parser code.",
       ]);
+
+      const startedAt = Date.now();
+      retryLogInterval = setInterval(() => {
+        const elapsedSeconds = Math.floor((Date.now() - startedAt) / 1000);
+        const retryNumber = Math.floor(Math.max(0, elapsedSeconds - 10) / 30) + 1;
+
+        if (elapsedSeconds < 10 || retryNumber > 3) {
+          return;
+        }
+
+        const secondsIntoRetryWindow = (elapsedSeconds - 10) % 30;
+        const secondsRemaining = 30 - secondsIntoRetryWindow;
+        const retryLog = secondsIntoRetryWindow === 0
+          ? `[Gemini Schema] Retrying Gemini request now (${retryNumber}/3).`
+          : createGeminiRetryWaitLog("Gemini Schema", retryNumber, secondsRemaining);
+        setAnalysisLogs((currentLogs) => {
+          const previousLogs = currentLogs.filter((log) =>
+            !log.startsWith("[Gemini Schema] Gemini may be under high demand.")
+            && !log.startsWith("[Gemini Schema] Retrying Gemini request now")
+          );
+          return [...previousLogs, retryLog];
+        });
+      }, 1000);
 
       const targetEmails = emails.filter((mail) => selectedEmailIds.has(mail.id));
 
@@ -505,6 +547,9 @@ export default function App() {
       ]);
       setErrorText(err.message || "Analytical engine crashed.");
     } finally {
+      if (retryLogInterval) {
+        clearInterval(retryLogInterval);
+      }
       setIsAnalyzing(false);
     }
   };
@@ -520,11 +565,12 @@ export default function App() {
         name,
         query: draftSubjects[0] || subjectInput,
         subjects: draftSubjects,
-        detectedType: analysisResult.detectedType,
         explanation: analysisResult.explanation,
-        scriptCode,
-        aiScriptCode: analysisResult.aiScriptCode,
         schemaFields,
+        subjectScripts: draftSubjects.map((subject) => ({
+          subject,
+          scriptCode,
+        })),
         enabledSchedule: false,
         initialEmails: emails.filter((m) => selectedEmailIds.has(m.id)),
         initialResults: analysisResult.sampleExtractedResults,
@@ -637,6 +683,12 @@ export default function App() {
     }
 
     const result = await res.json() as AddExtractorSubjectResponse;
+    setExtractors((prev) => prev.map((e) => (e.id === id ? result.extractor : e)));
+    return result;
+  };
+
+  const handleSubmitSchemaEdit = async (id: string, message: string, messages: ExtractorSchemaEditMessage[], provider: ExtractorSchemaEditProvider) => {
+    const result = await postExtractorSchemaEdit(firebaseSession, id, message, messages, provider);
     setExtractors((prev) => prev.map((e) => (e.id === id ? result.extractor : e)));
     return result;
   };
@@ -965,7 +1017,6 @@ export default function App() {
 
               {!isProfileRoute && currentSlide === "schema" && (
                 <SchemaSlide
-                  detectedType={analysisResult?.detectedType || "Custom"}
                   explanation={analysisResult?.explanation || ""}
                   schemaFields={schemaFields}
                   setSchemaFields={setSchemaFields}
@@ -978,7 +1029,6 @@ export default function App() {
                 <ScriptSlide
                   scriptCode={scriptCode}
                   setScriptCode={setScriptCode}
-                  aiScriptCode={analysisResult?.aiScriptCode || ""}
                   testEmails={emails.filter((m) => selectedEmailIds.has(m.id))}
                   backendHeaders={createBackendHeadersForSession(firebaseSession, true)}
                   isSaving={isSavingExtractor}
@@ -999,6 +1049,7 @@ export default function App() {
                   onAddSubject={handleAddExtractorSubject}
                   onLoadOperations={handleLoadExtractorOperations}
                   onDeleteExtractor={handleDeleteExtractor}
+                  onSubmitSchemaEdit={handleSubmitSchemaEdit}
                   onCreateExtractor={resetExtractorCreation}
                 />
               )}

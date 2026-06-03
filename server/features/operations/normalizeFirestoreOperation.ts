@@ -11,5 +11,7 @@ export function normalizeFirestoreOperation(id: string, data: unknown): Extracti
     from: source.from || "Unknown Sender",
     extractedData: source.extractedData && typeof source.extractedData === "object" ? source.extractedData : {},
     timestamp: source.timestamp || "",
+    computedStatus: source.computedStatus === "pending" ? "pending" : source.computedStatus === "complete" ? "complete" : undefined,
+    pendingComputedFields: Array.isArray(source.pendingComputedFields) ? source.pendingComputedFields : [],
   };
 }

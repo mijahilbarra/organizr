@@ -11,6 +11,8 @@ export type OperationsCollectionRef = {
     id: string;
     get: () => Promise<OperationDocumentSnapshot>;
     create: (data: unknown) => Promise<unknown>;
+    set?: (data: unknown, options?: unknown) => Promise<unknown>;
+    update?: (data: unknown) => Promise<unknown>;
   };
   where: (fieldPath: string, operator: "==", value: string) => OperationsCollectionRef;
   orderBy: (fieldPath: string, directionStr: "asc" | "desc") => OperationsCollectionRef;

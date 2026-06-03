@@ -4,4 +4,5 @@ export interface FirebaseAuthSession {
   user: User;
   firebaseIdToken: string;
   gmailAccessToken: string | null;
+  gmailAccessTokenExpiresInSeconds: number | null;
 }

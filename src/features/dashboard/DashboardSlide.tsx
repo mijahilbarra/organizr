@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from "react";
-import { Play, Calendar, Globe, Table, Loader2, Plus, Tags, Trash2, Settings, X } from "lucide-react";
+import { Play, Calendar, Globe, Table, Loader2, Plus, Tags, Trash2, Settings, X, MessageSquare, Send, Clipboard } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
-import { AddExtractorSubjectResponse, Extractor, ExtractionRecord, ExtractorOperationsPage } from "../../types";
+import { AddExtractorSubjectResponse, Extractor, ExtractionRecord, ExtractorOperationsPage, ExtractorSchemaEditMessage, ExtractorSchemaEditProvider, ExtractorSchemaEditResponse } from "../../types";
 import { ConfirmActionModal } from "../shared/ConfirmActionModal";
+import { createGeminiRetryWaitLog } from "../shared/createGeminiRetryWaitLog";
 import { getPaginationPages } from "./getPaginationPages";
 
 interface DashboardSlideProps {
@@ -17,6 +18,7 @@ interface DashboardSlideProps {
   onAddSubject: (id: string, subject: string) => Promise<AddExtractorSubjectResponse>;
   onLoadOperations: (id: string, page?: number) => Promise<ExtractorOperationsPage>;
   onDeleteExtractor: (id: string) => Promise<void>;
+  onSubmitSchemaEdit: (id: string, message: string, messages: ExtractorSchemaEditMessage[], provider: ExtractorSchemaEditProvider) => Promise<ExtractorSchemaEditResponse>;
   onCreateExtractor: () => void;
 }
 
@@ -37,6 +39,7 @@ export const DashboardSlide: React.FC<DashboardSlideProps> = ({
   onAddSubject,
   onLoadOperations,
   onDeleteExtractor,
+  onSubmitSchemaEdit,
   onCreateExtractor,
 }) => {
   const [selectedExtractorId, setSelectedExtractorId] = useState<string | null>(
@@ -62,6 +65,11 @@ export const DashboardSlide: React.FC<DashboardSlideProps> = ({
   const [loadingOperationsId, setLoadingOperationsId] = useState<string | null>(null);
   const [isSettingsPanelOpen, setIsSettingsPanelOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Extractor | null>(null);
+  const [schemaEditMessage, setSchemaEditMessage] = useState("");
+  const [schemaEditMessages, setSchemaEditMessages] = useState<ExtractorSchemaEditMessage[]>([]);
+  const [schemaEditFeedback, setSchemaEditFeedback] = useState("");
+  const [schemaEditProvider, setSchemaEditProvider] = useState<ExtractorSchemaEditProvider>("gemini");
+  const [isSubmittingSchemaEdit, setIsSubmittingSchemaEdit] = useState(false);
 
   useEffect(() => {
     if (extractors.length === 0) {
@@ -165,6 +173,51 @@ export const DashboardSlide: React.FC<DashboardSlideProps> = ({
     }
   };
 
+  const handleSchemaEditSubmit = async (e: React.FormEvent, id: string) => {
+    e.preventDefault();
+    const message = schemaEditMessage.trim();
+    if (!message) return;
+
+    let retryLogInterval: ReturnType<typeof setInterval> | null = null;
+
+    try {
+      setIsSubmittingSchemaEdit(true);
+      const providerLabel = schemaEditProvider === "openai" ? "Chat GPT" : "Gemini";
+      setSchemaEditFeedback(`[${providerLabel} Schema Edit] Sending request to ${providerLabel}.`);
+      const startedAt = Date.now();
+      retryLogInterval = setInterval(() => {
+        const elapsedSeconds = Math.floor((Date.now() - startedAt) / 1000);
+        const retryNumber = Math.floor(Math.max(0, elapsedSeconds - 10) / 30) + 1;
+
+        if (elapsedSeconds < 10 || retryNumber > 3) {
+          return;
+        }
+
+        const secondsIntoRetryWindow = (elapsedSeconds - 10) % 30;
+        const secondsRemaining = 30 - secondsIntoRetryWindow;
+        if (schemaEditProvider === "gemini") {
+          setSchemaEditFeedback(secondsIntoRetryWindow === 0
+            ? `[Gemini Schema Edit] Retrying Gemini request now (${retryNumber}/3).`
+            : createGeminiRetryWaitLog("Gemini Schema Edit", retryNumber, secondsRemaining)
+          );
+        }
+      }, 1000);
+
+      const nextMessages: ExtractorSchemaEditMessage[] = [...schemaEditMessages, { role: "user", content: message }];
+      const result = await onSubmitSchemaEdit(id, message, nextMessages, schemaEditProvider);
+      setSchemaEditMessages([...nextMessages, { role: "assistant", content: result.assistantMessage }]);
+      setSchemaEditMessage("");
+      setSchemaEditFeedback(result.debugLogs[result.debugLogs.length - 1] || "Schema edit submitted.");
+    } catch (err: any) {
+      setSchemaEditFeedback(err.message || "Schema edit failed.");
+    } finally {
+      if (retryLogInterval) {
+        clearInterval(retryLogInterval);
+      }
+      setIsSubmittingSchemaEdit(false);
+    }
+  };
+
   const selectedExtractor = extractors.find((e) => e.id === selectedExtractorId);
   const selectedOperationRows = selectedExtractor
     ? operationRowsByExtractorId[selectedExtractor.id] || selectedExtractor.extractions || []
@@ -184,6 +237,39 @@ export const DashboardSlide: React.FC<DashboardSlideProps> = ({
         },
       ]
     : [];
+
+  const resolveRecordFieldValue = (record: ExtractionRecord, fieldName: string, calculation?: string) => {
+    const storedValue = record.extractedData[fieldName];
+    if (storedValue !== undefined && storedValue !== null) {
+      return storedValue;
+    }
+
+    if (!calculation) {
+      return "";
+    }
+
+    const valuesByName = record.extractedData || {};
+    const expression = calculation.replace(/\b[A-Za-z_][A-Za-z0-9_]*\b/g, (token) => {
+      const value = valuesByName[token];
+      if (typeof value === "number") return String(value);
+      if (typeof value === "string") {
+        const parsed = Number(value.replace(/,/g, ""));
+        return Number.isFinite(parsed) ? String(parsed) : "0";
+      }
+      return "0";
+    });
+
+    if (!/^[\d+\-*/().\s]+$/.test(expression)) {
+      return "";
+    }
+
+    try {
+      const calculatedValue = Function(`"use strict"; return (${expression});`)();
+      return Number.isFinite(calculatedValue) ? calculatedValue : "";
+    } catch {
+      return "";
+    }
+  };
 
   useEffect(() => {
     if (!selectedExtractorId || operationRowsByExtractorId[selectedExtractorId]) return;
@@ -271,7 +357,7 @@ export const DashboardSlide: React.FC<DashboardSlideProps> = ({
             <div className="md:col-span-2 xl:col-span-3 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
               {extractors.map((ext) => {
                 const isSelected = ext.id === selectedExtractorId;
-                const registeredSubjects = ext.subjects?.length ? ext.subjects : [{ id: `${ext.id}-legacy-query`, value: ext.query }];
+                const registeredSubjects = ext.subjects ?? [];
 
                 return (
                   <div
@@ -289,9 +375,6 @@ export const DashboardSlide: React.FC<DashboardSlideProps> = ({
                   >
                     <div className="space-y-2">
                       <div className="flex justify-between items-start">
-                        <span className="bg-indigo-150 text-indigo-700 font-extrabold text-[9px] px-2 py-0.5 rounded uppercase tracking-wider">
-                          {ext.detectedType}
-                        </span>
                         <span className="text-[10px] text-slate-400 font-mono">
                           {ext.operationCount || ext.extractions.length} Records
                         </span>
@@ -325,16 +408,21 @@ export const DashboardSlide: React.FC<DashboardSlideProps> = ({
                   <div className="space-y-4">
                     <div className="flex flex-col xl:flex-row xl:items-end justify-between gap-4">
                       <div>
-                        <span className="text-[10px] font-extrabold uppercase tracking-wider text-indigo-600">
-                          {selectedExtractor.detectedType}
-                        </span>
                         <h3 className="mt-1 text-xl font-extrabold text-slate-900">{selectedExtractor.name}</h3>
                         <p className="text-slate-500 text-[11px] mt-1">
                           {selectedExtractor.operationCount || selectedOperationRows.length} current extraction{(selectedExtractor.operationCount || selectedOperationRows.length) === 1 ? "" : "s"}
                         </p>
                       </div>
                       <div className="flex flex-col items-stretch xl:items-end gap-2">
-                        <div className="flex flex-wrap items-end gap-2">
+                          <div className="flex flex-wrap items-end gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setIsSettingsPanelOpen(true)}
+                            className="h-9 px-4 rounded-lg border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold text-xs transition-all inline-flex items-center gap-1.5 cursor-pointer select-none"
+                          >
+                            <MessageSquare className="w-3 h-3" />
+                            <span>Edit extractor</span>
+                          </button>
                           {selectedSyncDateFields.map((field) => (
                             <label key={field.label} className="flex flex-col gap-1 text-[9px] font-bold uppercase tracking-wide text-slate-400">
                               {field.label}
@@ -414,7 +502,10 @@ export const DashboardSlide: React.FC<DashboardSlideProps> = ({
                                     {rec.date.split(" ")[0]}
                                   </td>
                                   {selectedExtractor.schemaFields.map((field) => {
-                                    const cellVal = rec.extractedData[field.fieldName];
+                                    const normalizedFieldType = field.fieldType.trim().toLowerCase();
+                                    const cellVal = normalizedFieldType === "computed" || normalizedFieldType === "calculated" || normalizedFieldType === "calculado"
+                                      ? resolveRecordFieldValue(rec, field.fieldName, field.calculation)
+                                      : rec.extractedData[field.fieldName];
                                     const displayVal = cellVal !== undefined && cellVal !== null
                                       ? (typeof cellVal === "object" ? JSON.stringify(cellVal) : String(cellVal))
                                       : "";
@@ -520,10 +611,7 @@ export const DashboardSlide: React.FC<DashboardSlideProps> = ({
                               </div>
 
                               <div className="flex flex-wrap gap-2">
-                                {(selectedExtractor.subjects?.length
-                                  ? selectedExtractor.subjects
-                                  : [{ id: `${selectedExtractor.id}-legacy-query`, value: selectedExtractor.query }]
-                                ).map((subject) => (
+                                {(selectedExtractor.subjects ?? []).map((subject) => (
                                   <span
                                     key={subject.id}
                                     className="inline-flex max-w-full items-center rounded-lg border border-indigo-100 bg-indigo-50 px-2.5 py-1 text-[11px] font-bold text-indigo-700"
@@ -555,6 +643,84 @@ export const DashboardSlide: React.FC<DashboardSlideProps> = ({
                               {subjectFeedback && (
                                 <p className="text-[11px] font-bold text-slate-500">{subjectFeedback}</p>
                               )}
+                            </section>
+
+                            <section className="space-y-3 border-t border-slate-100 pt-6">
+                              <h4 className="text-sm font-extrabold text-slate-800 flex items-center gap-2">
+                                <MessageSquare className="w-4 h-4 text-indigo-500" /> Edit extractor schema
+                              </h4>
+                              <p className="text-slate-500 text-xs leading-relaxed">
+                                Request field additions, removals, renames, calculated columns, or question changes for this extractor.
+                              </p>
+
+                              <form onSubmit={(e) => handleSchemaEditSubmit(e, selectedExtractor.id)} className="space-y-2">
+                                {schemaEditMessages.length > 0 && (
+                                  <div className="max-h-48 space-y-2 overflow-y-auto rounded-xl border border-slate-100 bg-slate-50 p-3">
+                                    {schemaEditMessages.map((message, index) => (
+                                      <div
+                                        key={`${message.role}-${index}-${message.content}`}
+                                        className={`rounded-lg px-3 py-2 text-[11px] font-semibold leading-relaxed ${
+                                          message.role === "user"
+                                            ? "bg-white text-slate-700"
+                                            : "bg-indigo-50 text-indigo-800"
+                                        }`}
+                                      >
+                                        {message.content}
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                                <div className="relative">
+                                  <textarea
+                                    value={schemaEditMessage}
+                                    onChange={(e) => setSchemaEditMessage(e.target.value)}
+                                    rows={4}
+                                    placeholder="Example: Add a calculated field named netAmount using totalAmount - taxAmount, or add another subject matcher."
+                                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 pr-28 text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-indigo-105 leading-relaxed"
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => setSchemaEditProvider((current) => current === "gemini" ? "openai" : "gemini")}
+                                    disabled={isSubmittingSchemaEdit}
+                                    className="absolute right-2 top-2 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[10px] font-extrabold text-slate-600 shadow-sm hover:bg-slate-50 disabled:opacity-60"
+                                    title="Switch AI model"
+                                  >
+                                    {schemaEditProvider === "openai" ? "Chat GPT" : "Gemini"}
+                                  </button>
+                                </div>
+                                <button
+                                  type="submit"
+                                  disabled={isSubmittingSchemaEdit || !schemaEditMessage.trim()}
+                                  className="inline-flex items-center justify-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 font-bold text-xs text-white rounded-xl px-4 py-2 cursor-pointer select-none"
+                                >
+                                  {isSubmittingSchemaEdit ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
+                                  <span>{isSubmittingSchemaEdit ? "Sending" : "Send edit"}</span>
+                                </button>
+                              </form>
+
+                              {schemaEditFeedback && (
+                                <p className="text-[11px] font-bold text-slate-500">{schemaEditFeedback}</p>
+                              )}
+                            </section>
+
+                            <section className="space-y-3 border-t border-slate-100 pt-6">
+                              <div className="flex items-center justify-between gap-3">
+                                <h4 className="text-sm font-extrabold text-slate-800 flex items-center gap-2">
+                                  <Table className="w-4 h-4 text-indigo-500" /> Current Schema JSON
+                                </h4>
+                                <button
+                                  type="button"
+                                  onClick={() => navigator.clipboard.writeText(JSON.stringify(selectedExtractor.schemaFields, null, 2))}
+                                  className="h-8 w-8 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-500 inline-flex items-center justify-center cursor-pointer"
+                                  title="Copy schema JSON"
+                                  aria-label="Copy schema JSON"
+                                >
+                                  <Clipboard className="w-4 h-4" />
+                                </button>
+                              </div>
+                              <pre className="max-h-72 overflow-auto rounded-xl border border-slate-100 bg-slate-950 p-3 text-[11px] leading-relaxed text-slate-200" style={{ scrollbarWidth: "thin" }}>
+                                {JSON.stringify(selectedExtractor.schemaFields, null, 2)}
+                              </pre>
                             </section>
 
                             <section className="space-y-3 border-t border-slate-100 pt-6">

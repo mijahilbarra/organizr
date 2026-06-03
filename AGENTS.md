@@ -2,6 +2,18 @@
 
 Guia de trabajo para agentes y colaboradores en este proyecto.
 
+## Desarrollo Activo
+
+Este proyecto esta en desarrollo activo.
+
+Reglas:
+
+- No introducir codigo de retrocompatibilidad.
+- No introducir excepciones de compatibilidad para payloads, rutas, documentos o UI anteriores.
+- Si una estructura cambia, actualizar el flujo actual completo en lugar de mantener formas viejas en paralelo.
+- Si durante un cambio aparece logica legacy o fallback de compatibilidad, eliminarla en el mismo trabajo si pertenece al scope tocado.
+- Preferir contratos explicitos y unicos sobre adaptadores temporales.
+
 ## Contexto Inicial
 
 Antes de analizar o modificar el proyecto, escanear los nombres de los archivos para entender la estructura actual.
@@ -53,11 +65,14 @@ Ejemplos actuales:
 ## Documentacion Visual
 
 El flujo principal debe mantenerse documentado con Mermaid en `sequence-diagram.md`.
+La estructura persistida de entidades debe mantenerse documentada con Mermaid en `entityDiagram.md`.
 
 Reglas:
 
 - Actualizar `sequence-diagram.md` cuando cambie la interaccion entre usuario, frontend, backend, Gmail, Gemini, Firebase o webhooks.
+- Actualizar `entityDiagram.md` cuando cambien colecciones, documentos persistidos, campos guardados, relaciones o estructuras embebidas relevantes.
 - El diagrama debe mostrar quien inicia cada accion y que sistema responde.
+- El diagrama de entidades debe distinguir entre colecciones reales de Firestore y estructuras embebidas cuando aplique.
 - Si se agrega un endpoint, una pantalla o una integracion externa relevante, revisar si el diagrama necesita cambios.
 - Mantener el diagrama como referencia de producto e implementacion, no como decoracion.
 

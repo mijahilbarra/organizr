@@ -2,6 +2,7 @@ export interface EmailConfig {
   hasFirebaseProjectId: boolean;
   hasFirebaseAdminCredentials: boolean;
   hasGeminiKey: boolean;
+  hasOpenAiKey: boolean;
   appUrl: string;
   firestoreUsersCollection: string;
   firestoreExtractorsCollection: string;
@@ -22,6 +23,10 @@ export interface SchemaField {
   fieldType: string;
   description: string;
   exampleValue: string;
+  calculation?: string;
+  computedSourceField?: string;
+  computedPrompt?: string;
+  computedFallback?: string;
 }
 
 export interface SampleExtractionResult {
@@ -30,13 +35,12 @@ export interface SampleExtractionResult {
 }
 
 export interface AnalysisResponse {
-  detectedType: string;
   explanation: string;
   schemaFields: SchemaField[];
   scriptCode: string;
-  aiScriptCode: string;
   sampleExtractedResults: SampleExtractionResult[];
   debugLogs?: string[];
+  provider?: "gemini" | "openai";
 }
 
 export interface ExtractionRecord {
@@ -47,6 +51,8 @@ export interface ExtractionRecord {
   date: string;
   extractedData: Record<string, any>;
   timestamp?: string;
+  computedStatus?: "pending" | "complete";
+  pendingComputedFields?: string[];
 }
 
 export interface ExtractorSubject {
@@ -54,6 +60,12 @@ export interface ExtractorSubject {
   value: string;
   createdAt: string;
   lastScannedAt?: string;
+  scriptCode?: string;
+}
+
+export interface ExtractorSubjectScript {
+  subject: string;
+  scriptCode: string;
 }
 
 export interface Extractor {
@@ -62,10 +74,7 @@ export interface Extractor {
   name: string;
   query: string;
   subjects: ExtractorSubject[];
-  detectedType: string;
   explanation: string;
-  scriptCode: string;
-  aiScriptCode: string;
   schemaFields: SchemaField[];
   enabledSchedule: boolean;
   webhookUrl?: string;
@@ -95,11 +104,88 @@ export interface UserProfile {
   photoURL: string;
   createdAt: string;
   updatedAt: string;
+  llmConsumeByMonth: Record<string, LlmConsumeMonth>;
+  defaultLlmProvider?: LlmProviderPreference;
+  capabilities?: UserCapabilities;
+  llmSettings?: {
+    defaultProvider: LlmProviderPreference;
+    hasGeminiApiKey: boolean;
+    hasOpenAiApiKey: boolean;
+  };
   gmailConnection: null | {
     connectedAt: string;
     expiresAt: string;
     revokedAt?: string;
   };
+}
+
+export type LlmProviderPreference = "auto" | "gemini" | "openai";
+
+export type UserCapabilityState = "available" | "missing" | "unknown" | "disabled";
+
+export type UserCapabilitySource = "user" | "server" | null;
+
+export interface UserGmailCapability {
+  connected: boolean;
+  actionCode: string | null;
+  actionUrl: string;
+}
+
+export interface UserLlmProviderCapability {
+  available: boolean;
+  source: UserCapabilitySource;
+  actionCode: string | null;
+  actionUrl: string;
+}
+
+export interface UserLlmCapability {
+  defaultProvider: LlmProviderPreference;
+  providers: {
+    gemini: UserLlmProviderCapability;
+    openai: UserLlmProviderCapability;
+  };
+  hasAnyProvider: boolean;
+  actionCode: string | null;
+  actionUrl: string;
+}
+
+export interface UserCapabilities {
+  gmail?: UserGmailCapability;
+  llm?: UserLlmCapability;
+  chatgpt?: {
+    state: UserCapabilityState;
+    message?: string;
+    actionCode?: string;
+    actionUrl?: string;
+    actions?: Array<{
+      code: string;
+      label: string;
+      actionUrl: string;
+      state: UserCapabilityState;
+      message?: string;
+    }>;
+  };
+}
+
+export interface LlmConsumeMonth {
+  requestCount: number;
+  promptTokenCount: number;
+  candidateTokenCount: number;
+  totalTokenCount: number;
+}
+
+export interface ExtractorSchemaEditMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+export type ExtractorSchemaEditProvider = LlmProviderPreference;
+
+export interface ExtractorSchemaEditResponse {
+  extractor: Extractor;
+  assistantMessage: string;
+  debugLogs: string[];
+  provider?: "gemini" | "openai";
 }
 
 export type TicketState = "backlog" | "todo" | "doing" | "onreview" | "done";

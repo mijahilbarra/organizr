@@ -16,6 +16,7 @@ export const subscribeToFirebaseUser = (
       user,
       firebaseIdToken: await user.getIdToken(),
       gmailAccessToken: null,
+      gmailAccessTokenExpiresInSeconds: null,
     });
   });
 };
