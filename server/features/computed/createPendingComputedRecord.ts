@@ -11,7 +11,7 @@ export function createPendingComputedRecord(schemaFields: SchemaField[], record:
 
   for (const field of computedFields) {
     if (!hasUsableComputedValue(extractedData[field.fieldName])) {
-      extractedData[field.fieldName] = null;
+      extractedData[field.fieldName] = "";
     }
   }
 

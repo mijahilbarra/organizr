@@ -37,13 +37,41 @@ test("createRecordsWithPendingComputedStatus marks computed-field operations as 
 
   assert.equal(records[0].computedStatus, "pending");
   assert.deepEqual(records[0].pendingComputedFields, ["category"]);
-  assert.equal(records[0].extractedData.category, null);
+  assert.equal(records[0].extractedData.category, "");
 });
 
-test("validateSchemaAgainstSample requires computedStatus when the schema includes computed fields", () => {
+test("validateSchemaAgainstSample accepts parser output that omits computed fields", () => {
   const validationResult = validateSchemaAgainstSample(
     createComputedSchemaFields(),
-    "function extractData(){ return { merchant: 'ACME', category: 'office' }; }",
+    "function extractData(){ return { merchant: 'ACME' }; }",
+    { body: "<html></html>" },
+  );
+
+  assert.equal(validationResult.ok, true);
+});
+
+test("validateSchemaAgainstSample accepts null or empty computed field placeholders", () => {
+  const nullValidationResult = validateSchemaAgainstSample(
+    createComputedSchemaFields(),
+    "function extractData(){ return { merchant: 'ACME', category: null }; }",
+    { body: "<html></html>" },
+  );
+
+  assert.equal(nullValidationResult.ok, true);
+
+  const validationResult = validateSchemaAgainstSample(
+    createComputedSchemaFields(),
+    "function extractData(){ return { merchant: 'ACME', category: '' }; }",
+    { body: "<html></html>" },
+  );
+
+  assert.equal(validationResult.ok, true);
+});
+
+test("validateSchemaAgainstSample rejects invalid computedStatus when provided", () => {
+  const validationResult = validateSchemaAgainstSample(
+    createComputedSchemaFields(),
+    "function extractData(){ return { merchant: 'ACME', computedStatus: 'queued' }; }",
     { body: "<html></html>" },
   );
 
@@ -51,12 +79,13 @@ test("validateSchemaAgainstSample requires computedStatus when the schema includ
   assert.match(validationResult.message || "", /computedStatus/);
 });
 
-test("validateSchemaAgainstSample accepts computedStatus alongside schema fields", () => {
+test("validateSchemaAgainstSample rejects non-empty pending computed values", () => {
   const validationResult = validateSchemaAgainstSample(
     createComputedSchemaFields(),
-    "function extractData(){ return { merchant: 'ACME', category: 'office', computedStatus: 'pending' }; }",
+    "function extractData(){ return { merchant: 'ACME', category: 'office' }; }",
     { body: "<html></html>" },
   );
 
-  assert.equal(validationResult.ok, true);
+  assert.equal(validationResult.ok, false);
+  assert.match(validationResult.message || "", /registered as empty while pending/);
 });

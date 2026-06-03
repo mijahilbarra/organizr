@@ -1,5 +1,6 @@
 import { SchemaField } from "../../../src/types";
 import { compileExtractorScript } from "../analyze/compileExtractorScript";
+import { getComputedSchemaFields } from "../computed/getComputedSchemaFields";
 import { validateComputedStatusForSchemaOutput } from "../computed/validateComputedStatusForSchemaOutput";
 
 interface ValidationSample {
@@ -32,11 +33,16 @@ export function validateSchemaAgainstSample(
     };
   }
 
+  const computedFieldNames = new Set(
+    getComputedSchemaFields(schemaFields).map((field) => field.fieldName),
+  );
   const schemaKeys = schemaFields.map((field) => field.fieldName).sort();
   const outputKeys = Object.keys(output)
     .filter((key) => key !== "computedStatus")
     .sort();
-  const missingKeys = schemaKeys.filter((key) => !outputKeys.includes(key));
+  const missingKeys = schemaKeys.filter(
+    (key) => !computedFieldNames.has(key) && !outputKeys.includes(key),
+  );
   const extraKeys = outputKeys.filter((key) => !schemaKeys.includes(key));
 
   if (missingKeys.length > 0 || extraKeys.length > 0) {
@@ -53,6 +59,7 @@ export function validateSchemaAgainstSample(
   }
 
   const invalidKeys = schemaFields
+    .filter((field) => !computedFieldNames.has(field.fieldName))
     .map((field) => field.fieldName)
     .filter((fieldName) => {
       const value = output[fieldName];
@@ -63,6 +70,22 @@ export function validateSchemaAgainstSample(
     return {
       ok: false,
       message: `Parser output contains null or empty values for: ${invalidKeys.join(", ")}.`,
+      output,
+    };
+  }
+
+  const invalidComputedPendingValues = schemaFields
+    .filter((field) => computedFieldNames.has(field.fieldName))
+    .map((field) => field.fieldName)
+    .filter((fieldName) => {
+      const value = output[fieldName];
+      return typeof value === "string" && value.trim().length > 0;
+    });
+
+  if (invalidComputedPendingValues.length > 0) {
+    return {
+      ok: false,
+      message: `Computed fields are registered as empty while pending: ${invalidComputedPendingValues.join(", ")}.`,
       output,
     };
   }

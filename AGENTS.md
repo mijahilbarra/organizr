@@ -13,6 +13,7 @@ Reglas:
 - Si una estructura cambia, actualizar el flujo actual completo en lugar de mantener formas viejas en paralelo.
 - Si durante un cambio aparece logica legacy o fallback de compatibilidad, eliminarla en el mismo trabajo si pertenece al scope tocado.
 - Preferir contratos explicitos y unicos sobre adaptadores temporales.
+- Jamas crear puertas traseras, accesos ocultos, bypasses de autorizacion o mecanismos especiales no documentados para destrabar flujos.
 
 ## Contexto Inicial
 

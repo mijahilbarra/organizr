@@ -307,29 +307,14 @@
                       "schemaFields": {
                         "type": "array",
                         "items": {
-                          "type": "object"
+                          "$ref": "#/components/schemas/SchemaField"
                         }
                       },
                       "scriptCode": {
                         "type": "string"
                       },
                       "validationSample": {
-                        "type": "object",
-                        "additionalProperties": false,
-                        "properties": {
-                          "body": {
-                            "type": "string"
-                          },
-                          "subject": {
-                            "type": "string"
-                          },
-                          "from": {
-                            "type": "string"
-                          }
-                        },
-                        "required": [
-                          "body"
-                        ]
+                        "$ref": "#/components/schemas/ValidationSample"
                       },
                       "sampleExtractedResults": {
                         "type": "array",
@@ -525,7 +510,7 @@
                   "schemaFields": {
                     "type": "array",
                     "items": {
-                      "type": "object"
+                      "$ref": "#/components/schemas/SchemaField"
                     }
                   }
                 },
@@ -949,7 +934,7 @@
                       "schemaFields": {
                         "type": "array",
                         "items": {
-                          "type": "object"
+                          "$ref": "#/components/schemas/SchemaField"
                         }
                       },
                       "scriptCode": {
@@ -971,8 +956,9 @@
                   },
                   "schemaFields": {
                     "type": "array",
+                    "description": "Final full schema after the edit. Removed fields must be omitted here.",
                     "items": {
-                      "type": "object"
+                      "$ref": "#/components/schemas/SchemaField"
                     }
                   },
                   "subjectScripts": {
@@ -988,22 +974,7 @@
                           "type": "string"
                         },
                         "validationSample": {
-                          "type": "object",
-                          "additionalProperties": false,
-                          "properties": {
-                            "body": {
-                              "type": "string"
-                            },
-                            "subject": {
-                              "type": "string"
-                            },
-                            "from": {
-                              "type": "string"
-                            }
-                          },
-                          "required": [
-                            "body"
-                          ]
+                          "$ref": "#/components/schemas/ValidationSample"
                         }
                       },
                       "required": [
@@ -1031,22 +1002,7 @@
                           "type": "string"
                         },
                         "validationSample": {
-                          "type": "object",
-                          "additionalProperties": false,
-                          "properties": {
-                            "body": {
-                              "type": "string"
-                            },
-                            "subject": {
-                              "type": "string"
-                            },
-                            "from": {
-                              "type": "string"
-                            }
-                          },
-                          "required": [
-                            "body"
-                          ]
+                          "$ref": "#/components/schemas/ValidationSample"
                         }
                       },
                       "required": [
@@ -1598,6 +1554,64 @@
           }
         ]
       },
+      "ValidationSample": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "body": {
+            "type": "string"
+          },
+          "subject": {
+            "type": "string"
+          },
+          "from": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "body"
+        ]
+      },
+      "SchemaField": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "fieldName": {
+            "type": "string"
+          },
+          "fieldType": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "exampleValue": {
+            "type": "string"
+          },
+          "calculation": {
+            "type": "string"
+          },
+          "computedSourceField": {
+            "type": "string"
+          },
+          "computedPrompt": {
+            "type": "string"
+          },
+          "computedFallback": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "fieldName",
+          "fieldType",
+          "description",
+          "exampleValue",
+          "calculation",
+          "computedSourceField",
+          "computedPrompt",
+          "computedFallback"
+        ]
+      },
       "GptExtractorSubject": {
         "type": "object",
         "additionalProperties": false,
@@ -1644,7 +1658,7 @@
           "schemaFields": {
             "type": "array",
             "items": {
-              "type": "object"
+              "$ref": "#/components/schemas/SchemaField"
             }
           },
           "subjects": {

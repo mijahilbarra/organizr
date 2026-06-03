@@ -13,15 +13,14 @@ export function validateComputedStatusForSchemaOutput(
     return { ok: true };
   }
 
-  const includesComputedOutput = computedFields.some((field) => field.fieldName in output);
-  if (!includesComputedOutput) {
+  if (!("computedStatus" in output)) {
     return { ok: true };
   }
 
   if (output.computedStatus !== "pending" && output.computedStatus !== "complete") {
     return {
       ok: false,
-      message: 'Parser output for schemas with computed fields must include computedStatus with value "pending" or "complete".',
+      message: 'Parser output computedStatus must be "pending" or "complete" when provided.',
     };
   }
 

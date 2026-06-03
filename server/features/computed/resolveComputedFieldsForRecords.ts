@@ -49,7 +49,7 @@ export async function resolveComputedFieldsForRecords({
         resolvedRecord.extractedData[field.fieldName] = value;
         pendingComputedFields.delete(field.fieldName);
       } else {
-        resolvedRecord.extractedData[field.fieldName] = null;
+        resolvedRecord.extractedData[field.fieldName] = "";
         pendingComputedFields.add(field.fieldName);
       }
     }
