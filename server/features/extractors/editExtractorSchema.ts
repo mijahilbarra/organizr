@@ -6,6 +6,11 @@ import { normalizeComputedSchemaFields } from "../computed/normalizeComputedSche
 import { getExtractorByIdForUser } from "./getExtractorByIdForUser";
 import { updateExtractorById } from "./updateExtractorById";
 import { createSchemaEditManualPayload } from "./createSchemaEditManualPayload";
+import { createSchemaEditExpectedPayload } from "./createSchemaEditExpectedPayload";
+import { createSchemaEditCurrentParsers } from "./createSchemaEditCurrentParsers";
+import { createSchemaEditCurrentSamples } from "./createSchemaEditCurrentSamples";
+import { createSchemaEditStoredSamples } from "./createSchemaEditStoredSamples";
+import { createSampleExtractedResults } from "./createSampleExtractedResults";
 import { createGptActionResponse } from "../gpt/createGptActionResponse";
 import { validateSchemaAgainstSample } from "./validateSchemaAgainstSample";
 
@@ -73,20 +78,6 @@ export async function editExtractorSchema(req: Request, res: Response) {
       ));
     }
 
-    if (requestedSchemaUpdate && !requestedParserUpdate) {
-      addDebugLog("Rejecting schema-only edit because parser code is required to avoid obsolete parser/schema mismatches.");
-      return res.status(400).json(createGptActionResponse(
-        "MANUAL_PAYLOAD_REQUIRED",
-        "When updating schemaFields, send subjectScripts or subjects with parser code in the same request so schema and parser stay aligned.",
-        {
-          extractorId: id,
-          debugLogs,
-          mode: "needs_manual_payload",
-          acceptedPayloadShapes: ["schemaFields", "subjectScripts", "subjects", "analysis"],
-        },
-      ));
-    }
-
     if (hasManualSchemaPayload || hasManualSubjectPayload) {
       addDebugLog("Using manual schema edit payload supplied by the caller; skipping provider LLM.");
       const normalizedSchemaFields = hasManualSchemaPayload
@@ -144,9 +135,15 @@ export async function editExtractorSchema(req: Request, res: Response) {
       }
 
       const savedExtractor = await updateExtractorById(id, profile.uid, (extractor) => {
+        const storedSamples = createSchemaEditStoredSamples(extractor, req.body);
         extractor.explanation = manualPayload.explanation || extractor.explanation;
         extractor.schemaFields = normalizedSchemaFields;
         extractor.subjects = nextSubjects;
+        extractor.sampleEmails = storedSamples.sampleEmails;
+        extractor.sampleExtractedResults = createSampleExtractedResults(
+          storedSamples.sampleEmails,
+          nextSubjects,
+        );
       });
 
       if (!savedExtractor) {
@@ -180,13 +177,16 @@ export async function editExtractorSchema(req: Request, res: Response) {
     addDebugLog("No manual schema payload provided; returning the current extractor and the requested edit text.");
     return res.json(createGptActionResponse(
       "MANUAL_PAYLOAD_REQUIRED",
-      "Provide schemaFields plus subjectScripts or subjects in the request body to apply the edit without a provider.",
+      "Provide schemaFields to update the stored schema, and include subjectScripts or subjects whenever you also need to update parser code.",
       {
         extractor: currentExtractor,
         extractorId: id,
-        assistantMessage: "Provide schemaFields plus subjectScripts or subjects in the request body to apply the edit without a provider.",
+        assistantMessage: "Provide schemaFields to update the stored schema, and include subjectScripts or subjects whenever you also need to update parser code.",
         requestedEdit: message,
         suggestedSchemaPrompt: prompt,
+        currentParsers: createSchemaEditCurrentParsers(currentExtractor),
+        currentSamples: createSchemaEditCurrentSamples(currentExtractor),
+        expectedPayload: createSchemaEditExpectedPayload(currentExtractor),
         debugLogs,
         provider: "manual",
         mode: "needs_manual_payload",

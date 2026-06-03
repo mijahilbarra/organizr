@@ -68,6 +68,8 @@ classDiagram
     +name: string
     +query: string
     +explanation: string
+    +sampleEmails: EmailMessage[]
+    +sampleExtractedResults: SampleExtractionResult[]
     +webhookUrl: string
     +enabledSchedule: boolean
     +triggerCount: int
@@ -89,7 +91,10 @@ classDiagram
     +triggerExtractor()
     +editExtractorSchema()
     +buildExtractorSchemaEditPrompt()
+    +createExtractorStoredSamples()
     +createSchemaEditManualPayload()
+    +createSchemaEditCurrentSamples()
+    +createSchemaEditStoredSamples()
     +normalizeFirestoreExtractor()
     +normalizeExtractorSubjects()
     +getUniqueSubjectValues()
@@ -115,6 +120,23 @@ classDiagram
     +updateExtractorSubject()
     +deleteExtractorSubject()
     +validateSchemaAgainstSample()
+  }
+
+  class EmailMessage {
+    <<Value Object>>
+    +id: string
+    +threadId: string
+    +subject: string
+    +from: string
+    +date: string
+    +snippet: string
+    +body: string
+  }
+
+  class SampleExtractionResult {
+    <<Value Object>>
+    +emailId: string
+    +extractedData: string
   }
 
   class SchemaField {
@@ -222,13 +244,15 @@ classDiagram
 
   Extractor *-- ExtractorSubject : contains
   Extractor *-- SchemaField : defines
+  Extractor *-- EmailMessage : stores samples
+  Extractor *-- SampleExtractionResult : stores parsed sample outputs
   Extractor "1" --> "*" ExtractionRecord : produces
 ```
 
 ## Notas
 
 - Colecciones reales de Firestore: `users`, `extractors`, `operations`, `oauthCodes`, `tickets`.
-- `GmailConnection`, `LlmSettings`, `LlmConsumeMonth`, `ExtractorSubject` y `SchemaField` se guardan embebidos dentro de documentos raíz.
+- `GmailConnection`, `LlmSettings`, `LlmConsumeMonth`, `ExtractorSubject`, `SchemaField`, `EmailMessage` y `SampleExtractionResult` se guardan embebidos dentro de documentos raíz.
 - `ExtractionRecord.extractedData` es un objeto dinámico cuyo shape depende de `Extractor.schemaFields`.
 - Los campos computed viven dentro de `ExtractionRecord`, no en una entidad aparte.
 - `Extractor` es el aggregate root del modelo de extracción: contiene sus `subjects` y `schemaFields`.

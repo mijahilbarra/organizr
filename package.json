@@ -13,6 +13,7 @@
     "start": "node dist/server.cjs",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
+    "test": "tsx --test server/features/extractors/*.test.ts",
     "openapi:sync": "node scripts/sync-openapi.mjs",
     "openapi:check": "node -e \"const fs=require('fs');const file='functions/openapi.json';const read=()=>JSON.parse(fs.readFileSync(file,'utf8'));const format=(value)=>JSON.stringify(value,null,2)+'\\n';const spec=read();const fail=(message)=>{console.error(message);process.exit(1);};const inspect=(node,path=[])=>{if(!node||typeof node!=='object'){return;}if(Array.isArray(node)){node.forEach((item,index)=>inspect(item,path.concat(index)));return;}const pathText=path.join('.');if(path.length>=2&&path[path.length-2]==='content'&&typeof node.\\$ref==='string'&&!('schema' in node)){fail('Invalid media type object at '+pathText+': wrap \\$ref inside schema.');}for(const [key,value] of Object.entries(node)){inspect(value,path.concat(key));}};inspect(spec);if(format(spec)!==fs.readFileSync(file,'utf8')){fail('functions/openapi.json is not formatted canonically. Run npm run openapi:sync.');}console.log('OpenAPI spec is structurally consistent.');\"",
     "duplicates": "jscpd src server functions --min-lines 6 --min-tokens 40 --reporters console --ignore \"**/node_modules/**,**/lib/**,**/dist/**\"",

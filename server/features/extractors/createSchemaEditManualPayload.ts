@@ -23,7 +23,16 @@ export function createSchemaEditManualPayload(body: any, currentExtractor: Extra
     ? body.subjects
     : Array.isArray(body?.subjectScripts)
       ? body.subjectScripts
-      : null;
+      : Array.isArray(analysis?.subjects)
+        ? analysis.subjects
+        : Array.isArray(analysis?.subjectScripts)
+          ? analysis.subjectScripts
+          : null;
+  const sharedScriptCode = typeof body?.scriptCode === "string" && body.scriptCode.trim()
+    ? body.scriptCode.trim()
+    : typeof analysis?.scriptCode === "string" && analysis.scriptCode.trim()
+      ? analysis.scriptCode.trim()
+      : "";
 
   if (subjectEntries) {
     return {
@@ -45,6 +54,19 @@ export function createSchemaEditManualPayload(body: any, currentExtractor: Extra
           scriptCode: typeof entry.scriptCode === "string" ? entry.scriptCode.trim() : "",
         }))
         .filter((entry) => entry.value && entry.scriptCode),
+    };
+  }
+
+  if (sharedScriptCode) {
+    return {
+      explanation: explanationSource.trim(),
+      schemaFields,
+      subjects: currentExtractor.subjects
+        .map((subject) => ({
+          ...subject,
+          scriptCode: sharedScriptCode,
+        }))
+        .filter((subject) => subject.value && subject.scriptCode),
     };
   }
 

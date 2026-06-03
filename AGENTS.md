@@ -85,6 +85,83 @@ Durante cambios relacionados con Firebase:
 - Preferir Firestore para datos persistentes si reemplaza la base local actual.
 - Documentar cambios de flujo en `sequence-diagram.md` cuando Firebase entre en el recorrido.
 
+## Endpoints Para Agentes
+
+Algunos endpoints pueden estar diseniados para trabajar mejor con agentes tipo Custom GPT, no solo con UIs tradicionales.
+
+Approach recomendado:
+
+- Permitir un primer intento incompleto orientado por intencion, por ejemplo un `message` en lenguaje natural.
+- Si la intencion sola no alcanza para persistir con seguridad, responder con el contexto exacto del recurso actual y con la forma explicita del payload esperado.
+- Esperar un segundo intento del agente con el payload completo y validable antes de guardar.
+- Mantener la persistencia final basada en contratos explicitos, no en texto libre.
+
+Casos donde este approach es util:
+
+- Ediciones complejas donde el agente necesita contexto actual del recurso antes de construir el cambio completo.
+- Flujos donde pedirle al agente que acierte el payload correcto en el primer intento produce muchos errores.
+- Operaciones donde conviene separar "entender la intencion" de "persistir datos".
+- Integraciones con Custom GPTs o asistentes que funcionan mejor cuando el backend corrige el rumbo y devuelve estructura esperada.
+
+Beneficios:
+
+- Reduce la cantidad de instrucciones fijas que necesita el agente para operar bien.
+- Disminuye payloads mal formados en el primer intento.
+- Mantiene el backend como autoridad del contrato final.
+- Hace mas auditable el cambio persistido porque el guardado ocurre solo con datos estructurados.
+- Permite que el backend devuelva contexto vivo del recurso en lugar de depender de contexto viejo embebido en el prompt del agente.
+
+Tradeoff:
+
+- El endpoint puede tener una fase intermedia donde todavia no persiste nada.
+- Esa fase no debe tratarse como error de producto si forma parte normal del flujo del agente.
+- Si se usa este patron, documentar claramente en OpenAPI, README y prompts del agente que el flujo puede requerir dos llamadas.
+- En OpenAPI, cada `description` de path, method, operation o schema debe mantenerse corta y directa. Limite maximo: 300 caracteres por description.
+
+Ejemplo:
+
+1. Un Custom GPT quiere editar un extractor y envia solo:
+
+```json
+{
+  "message": "Agrega el campo total y renombra fecha a issuedAt"
+}
+```
+
+2. El backend no guarda todavia. Responde con:
+
+- El extractor actual.
+- Un codigo como `MANUAL_PAYLOAD_REQUIRED`.
+- Un prompt sugerido o contexto estructurado para ayudar al agente a construir el cambio correcto.
+
+3. El agente usa esa respuesta para generar el payload final:
+
+```json
+{
+  "schemaFields": [
+    { "fieldName": "issuedAt", "fieldType": "string" },
+    { "fieldName": "vendor", "fieldType": "string" },
+    { "fieldName": "total", "fieldType": "number" }
+  ],
+  "subjectScripts": [
+    {
+      "subjectId": "sub_1",
+      "subject": "Factura de compra",
+      "scriptCode": "function extractData(body, subject, sender) { return { issuedAt: '2026-06-01', vendor: 'ACME', total: 120.5 }; }",
+      "validationSample": {
+        "body": "<html>...</html>"
+      }
+    }
+  ]
+}
+```
+
+4. El backend valida que el parser y el schema coincidan y recien entonces persiste el cambio.
+
+Regla de diseno:
+
+- Si un endpoint sigue este patron, su comportamiento debe ser intencional y explicito: primer paso para orientar al agente, segundo paso para persistir con contrato cerrado.
+
 ## Tickets Para Codex
 
 La coleccion de tickets vive en Firestore como `tickets`.

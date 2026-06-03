@@ -76,6 +76,8 @@ export interface Extractor {
   subjects: ExtractorSubject[];
   explanation: string;
   schemaFields: SchemaField[];
+  sampleEmails: EmailMessage[];
+  sampleExtractedResults: SampleExtractionResult[];
   enabledSchedule: boolean;
   webhookUrl?: string;
   operationCount: number;

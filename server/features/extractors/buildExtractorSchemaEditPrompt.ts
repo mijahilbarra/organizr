@@ -11,7 +11,8 @@ Return JSON only. Keep the extractor usable after the edit.
 
 Rules:
 - Apply the user's requested schema/form change.
-- Keep existing fields unless the user asks to remove or rename them.
+- The final schemaFields array must contain exactly the fields that should remain after the edit.
+- Remove obsolete fields when the user asks to delete them or when the regenerated parser no longer returns them.
 - Regenerate each affected subject script as a complete JavaScript function extractData(body, subject, sender).
 - Every subject scriptCode must return keys exactly matching schemaFields fieldName values.
 - For computed/calculated fields, use fieldType "computed" and include a calculation instruction.

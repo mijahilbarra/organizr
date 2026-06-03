@@ -864,7 +864,7 @@
     },
     "/api/extractors/{id}/schema-edits": {
       "post": {
-        "description": "Update an existing extractor schema and its subject parsers. Manual persistence accepts schemaFields plus subjectScripts or subjects, or a nested analysis object from Custom GPT.",
+        "description": "Update an extractor schema and parser scripts. Supports a two-step agent flow: first send a message for context, then send structured schemaFields plus parser updates.",
         "operationId": "editExtractorSchemaForGpt",
         "deprecated": false,
         "parameters": [
@@ -912,6 +912,18 @@
                       },
                       "scriptCode": {
                         "type": "string"
+                      },
+                      "subjectScripts": {
+                        "type": "array",
+                        "items": {
+                          "type": "object"
+                        }
+                      },
+                      "subjects": {
+                        "type": "array",
+                        "items": {
+                          "type": "object"
+                        }
                       }
                     }
                   },

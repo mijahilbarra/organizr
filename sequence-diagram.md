@@ -168,7 +168,7 @@ sequenceDiagram
   Function->>Function: testExtractor(script, exampleEmails)
 
   alt Extractor valido
-    Function->>Firestore: Guarda documento extractors/{extractorId} con userId y metadata
+    Function->>Firestore: Guarda documento extractors/{extractorId} con userId, metadata y sampleEmails/sampleExtractedResults
     alt LLM disponible
       Function->>Firestore: Resuelve campos computed en lote antes de persistir las operaciones iniciales
     else Sin LLM activo
@@ -258,6 +258,7 @@ sequenceDiagram
   Frontend->>Function: schemaEdit(extractorId, message) con Authorization Firebase
   Function->>FirebaseAuth: Verifica Firebase ID token
   FirebaseAuth-->>Function: Usuario verificado
+  Function->>Firestore: Lee extractors/{extractorId} con schema, parsers y samples persistidos
   Function->>Firestore: Lee extractors/{extractorId} y valida userId
   Function->>Gemini: Edita schemaFields y scriptCode con contexto del chat
   Gemini-->>Function: Devuelve extractor actualizado y mensaje de asistente

@@ -1,4 +1,4 @@
-import { SchemaField } from "../src/types";
+import { EmailMessage, SampleExtractionResult, SchemaField } from "../src/types";
 
 export interface ExtractionRecord {
   id: string;
@@ -33,6 +33,8 @@ export interface Extractor {
   subjects: ExtractorSubject[];
   explanation: string;
   schemaFields: SchemaField[];
+  sampleEmails: EmailMessage[];
+  sampleExtractedResults: SampleExtractionResult[];
   webhookUrl: string;
   enabledSchedule: boolean;
   triggerCount: number;

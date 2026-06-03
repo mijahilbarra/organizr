@@ -8,6 +8,8 @@ import { createOperationRecord } from "../operations/createOperationRecord";
 import { sendExtractorRecordWebhooks } from "./sendExtractorRecordWebhooks";
 import { saveNewOperationsWithComputedFields } from "../computed/saveNewOperationsWithComputedFields";
 import { normalizeComputedSchemaFields } from "../computed/normalizeComputedSchemaFields";
+import { createExtractorStoredSamples } from "./createExtractorStoredSamples";
+import { createSampleExtractedResults } from "./createSampleExtractedResults";
 
 /**
  * Creates and persists a new email extractor containing layout descriptions,
@@ -35,6 +37,8 @@ export async function createExtractor(req: Request, res: Response) {
   }
 
   try {
+    const storedSamples = createExtractorStoredSamples(initialEmails, initialResults);
+
     // Create unique ID
     const extractorId = `ext_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
     const subjectValues = getUniqueSubjectValues([
@@ -80,6 +84,8 @@ export async function createExtractor(req: Request, res: Response) {
       }),
       explanation: explanation || "",
       schemaFields: normalizeComputedSchemaFields(schemaFields),
+      sampleEmails: storedSamples.sampleEmails,
+      sampleExtractedResults: [],
       webhookUrl: webhookUrl || "",
       enabledSchedule: !!enabledSchedule,
       triggerCount: extractions.length > 0 ? 1 : 0,
@@ -87,6 +93,11 @@ export async function createExtractor(req: Request, res: Response) {
       extractions: [],
       createdAt: new Date().toISOString(),
     };
+
+    newExtractor.sampleExtractedResults = createSampleExtractedResults(
+      newExtractor.sampleEmails,
+      newExtractor.subjects,
+    );
 
     await saveExtractor(newExtractor);
     const savedExtractions = await saveNewOperationsWithComputedFields({
