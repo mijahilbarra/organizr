@@ -9,6 +9,7 @@ import { createGptCapabilities } from "./createGptCapabilities";
 import { ensureGptTargetExtractorExists } from "./ensureGptTargetExtractorExists";
 import { createPersistedGptExtractorResponse } from "./createPersistedGptExtractorResponse";
 import { persistGptAnalysisResult } from "./persistGptAnalysisResult";
+import { resolveValidationSampleForGptAnalysis } from "./resolveValidationSampleForGptAnalysis";
 
 export async function createExtractorFromSubject(req: Request, res: Response) {
   const subject = String(req.body?.subject || "").trim();
@@ -48,6 +49,7 @@ export async function createExtractorFromSubject(req: Request, res: Response) {
       req.body?.provider === "customgpt"
       || (!capabilities.availableProviders.includes("gemini") && !capabilities.availableProviders.includes("openai"))
     ) {
+      const validationSample = resolveValidationSampleForGptAnalysis(req.body, subject, emails);
       return res.status(200).json(createGptActionResponse("CUSTOM_GPT_ANALYSIS_REQUIRED", "Use these Gmail samples to generate the extractor schema and parser, then call createExtractorFromCustomGptAnalysis.", {
         capabilities,
         subject,
@@ -55,12 +57,18 @@ export async function createExtractorFromSubject(req: Request, res: Response) {
         mode: "customgpt-manual-analysis",
         emailCount: emails.length,
         emails,
+        validationSample: validationSample || null,
         targetExtractor: extractorId,
         expectedAnalysisShape: {
           explanation: "string",
           schemaFields: [{ fieldName: "camelCase", fieldType: "string|number|boolean|array", description: "string", exampleValue: "string" }],
           scriptCode: "JavaScript function extractData(body, subject, sender) { return {...}; }",
           sampleExtractedResults: [{ emailId: "string", extractedData: "JSON string" }],
+          validationSample: {
+            body: "string",
+            subject: "string",
+            from: "string",
+          },
         },
       }));
     }
@@ -80,7 +88,14 @@ export async function createExtractorFromSubject(req: Request, res: Response) {
       }));
     }
 
-    const persisted = await persistGptAnalysisResult(req, loaded?.profile?.uid || "", analysis.body, subject, emails);
+    const persisted = await persistGptAnalysisResult(
+      req,
+      loaded?.profile?.uid || "",
+      analysis.body,
+      subject,
+      emails,
+      resolveValidationSampleForGptAnalysis(req.body, subject, emails),
+    );
     const response = createPersistedGptExtractorResponse(
       persisted,
       capabilities,

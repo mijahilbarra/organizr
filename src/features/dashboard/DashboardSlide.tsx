@@ -4,7 +4,11 @@ import { motion, AnimatePresence } from "motion/react";
 import { AddExtractorSubjectResponse, Extractor, ExtractionRecord, ExtractorOperationsPage, ExtractorSchemaEditMessage, ExtractorSchemaEditProvider, ExtractorSchemaEditResponse } from "../../types";
 import { ConfirmActionModal } from "../shared/ConfirmActionModal";
 import { createGeminiRetryWaitLog } from "../shared/createGeminiRetryWaitLog";
+import { formatOperationToastTime } from "./formatOperationToastTime";
 import { getPaginationPages } from "./getPaginationPages";
+import { NewOperationToast } from "./NewOperationToast";
+import { paginateOperations } from "./paginateOperations";
+import { subscribeToExtractorOperations } from "./subscribeToExtractorOperations";
 
 interface DashboardSlideProps {
   extractors: Extractor[];
@@ -16,7 +20,6 @@ interface DashboardSlideProps {
   onToggleSchedule: (id: string, enabled: boolean) => Promise<void>;
   onUpdateWebhook: (id: string, url: string) => Promise<void>;
   onAddSubject: (id: string, subject: string) => Promise<AddExtractorSubjectResponse>;
-  onLoadOperations: (id: string, page?: number) => Promise<ExtractorOperationsPage>;
   onDeleteExtractor: (id: string) => Promise<void>;
   onSubmitSchemaEdit: (id: string, message: string, messages: ExtractorSchemaEditMessage[], provider: ExtractorSchemaEditProvider) => Promise<ExtractorSchemaEditResponse>;
   onCreateExtractor: () => void;
@@ -37,7 +40,6 @@ export const DashboardSlide: React.FC<DashboardSlideProps> = ({
   onToggleSchedule,
   onUpdateWebhook,
   onAddSubject,
-  onLoadOperations,
   onDeleteExtractor,
   onSubmitSchemaEdit,
   onCreateExtractor,
@@ -60,7 +62,7 @@ export const DashboardSlide: React.FC<DashboardSlideProps> = ({
   const [syncAfterByExtractorId, setSyncAfterByExtractorId] = useState<Record<string, string>>({});
   const [syncBeforeByExtractorId, setSyncBeforeByExtractorId] = useState<Record<string, string>>({});
   const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
-  const [operationRowsByExtractorId, setOperationRowsByExtractorId] = useState<Record<string, ExtractionRecord[]>>({});
+  const [allOperationRowsByExtractorId, setAllOperationRowsByExtractorId] = useState<Record<string, ExtractionRecord[]>>({});
   const [operationPageByExtractorId, setOperationPageByExtractorId] = useState<Record<string, ExtractorOperationsPage>>({});
   const [loadingOperationsId, setLoadingOperationsId] = useState<string | null>(null);
   const [isSettingsPanelOpen, setIsSettingsPanelOpen] = useState(false);
@@ -70,6 +72,8 @@ export const DashboardSlide: React.FC<DashboardSlideProps> = ({
   const [schemaEditFeedback, setSchemaEditFeedback] = useState("");
   const [schemaEditProvider, setSchemaEditProvider] = useState<ExtractorSchemaEditProvider>("gemini");
   const [isSubmittingSchemaEdit, setIsSubmittingSchemaEdit] = useState(false);
+  const [operationCountByExtractorId, setOperationCountByExtractorId] = useState<Record<string, number>>({});
+  const [newOperationToastTime, setNewOperationToastTime] = useState<string | null>(null);
 
   useEffect(() => {
     if (extractors.length === 0) {
@@ -101,9 +105,6 @@ export const DashboardSlide: React.FC<DashboardSlideProps> = ({
       setSyncFeedback((prev) => ({ ...prev, [id]: "" }));
 
       await onRunScan(id, { after, before });
-      const page = await onLoadOperations(id, 1);
-      setOperationRowsByExtractorId((prev) => ({ ...prev, [id]: page.operations }));
-      setOperationPageByExtractorId((prev) => ({ ...prev, [id]: page }));
 
       const rangeLabel = after || before ? " for the selected dates" : "";
       setSyncFeedback((prev) => ({ ...prev, [id]: `Scan completed${rangeLabel}. Check updated records below.` }));
@@ -140,9 +141,6 @@ export const DashboardSlide: React.FC<DashboardSlideProps> = ({
       setIsSavingSubject(true);
       setSubjectFeedback("Searching Gmail, running Gemini, and extracting with the current schema...");
       const result = await onAddSubject(id, subject);
-      const page = await onLoadOperations(id, 1);
-      setOperationRowsByExtractorId((prev) => ({ ...prev, [id]: page.operations }));
-      setOperationPageByExtractorId((prev) => ({ ...prev, [id]: page }));
       setNewSubjectValue("");
       setSubjectFeedback(result.message);
     } catch (err: any) {
@@ -219,8 +217,9 @@ export const DashboardSlide: React.FC<DashboardSlideProps> = ({
   };
 
   const selectedExtractor = extractors.find((e) => e.id === selectedExtractorId);
+  const selectedOperationPageNumber = selectedExtractor ? operationPageByExtractorId[selectedExtractor.id]?.page || 1 : 1;
   const selectedOperationRows = selectedExtractor
-    ? operationRowsByExtractorId[selectedExtractor.id] || selectedExtractor.extractions || []
+    ? operationPageByExtractorId[selectedExtractor.id]?.operations || selectedExtractor.extractions || []
     : [];
   const selectedOperationPage = selectedExtractor ? operationPageByExtractorId[selectedExtractor.id] : null;
   const selectedSyncDateFields = selectedExtractor
@@ -272,43 +271,63 @@ export const DashboardSlide: React.FC<DashboardSlideProps> = ({
   };
 
   useEffect(() => {
-    if (!selectedExtractorId || operationRowsByExtractorId[selectedExtractorId]) return;
+    if (!selectedExtractor) {
+      return;
+    }
 
-    let isMounted = true;
-    setLoadingOperationsId(selectedExtractorId);
-    onLoadOperations(selectedExtractorId)
-      .then((page) => {
-        if (!isMounted) return;
-        setOperationRowsByExtractorId((prev) => ({ ...prev, [selectedExtractorId]: page.operations }));
-        setOperationPageByExtractorId((prev) => ({ ...prev, [selectedExtractorId]: page }));
-      })
-      .catch((error) => {
-        console.error(error);
-      })
-      .finally(() => {
-        if (isMounted) {
-          setLoadingOperationsId(null);
+    setLoadingOperationsId(selectedExtractor.id);
+    let isInitialSnapshot = true;
+
+    return subscribeToExtractorOperations({
+      extractorId: selectedExtractor.id,
+      userId: selectedExtractor.userId,
+      onSnapshotData: (snapshot, operations) => {
+        setAllOperationRowsByExtractorId((prev) => ({ ...prev, [selectedExtractor.id]: operations }));
+        setOperationCountByExtractorId((prev) => ({ ...prev, [selectedExtractor.id]: operations.length }));
+        setOperationPageByExtractorId((prev) => ({
+          ...prev,
+          [selectedExtractor.id]: paginateOperations(operations, selectedOperationPageNumber),
+        }));
+
+        if (!isInitialSnapshot) {
+          const addedOperationCount = snapshot.docChanges().filter((change) => change.type === "added").length;
+          if (addedOperationCount > 0) {
+            setNewOperationToastTime(formatOperationToastTime(new Date()));
+          }
         }
-      });
+
+        isInitialSnapshot = false;
+        setLoadingOperationsId((current) => current === selectedExtractor.id ? null : current);
+      },
+      onError: (error) => {
+        console.error(error);
+        setLoadingOperationsId((current) => current === selectedExtractor.id ? null : current);
+      },
+    });
+  }, [selectedExtractor, selectedOperationPageNumber]);
+
+  useEffect(() => {
+    if (!newOperationToastTime) {
+      return;
+    }
+
+    const timeout = window.setTimeout(() => {
+      setNewOperationToastTime(null);
+    }, 4000);
 
     return () => {
-      isMounted = false;
+      window.clearTimeout(timeout);
     };
-  }, [selectedExtractorId, operationRowsByExtractorId, onLoadOperations]);
+  }, [newOperationToastTime]);
 
   const handleLoadOperationsPage = async (id: string, pageNumber: number) => {
-    setLoadingOperationsId(id);
-    try {
-      const page = await onLoadOperations(id, pageNumber);
-      setOperationRowsByExtractorId((prev) => ({ ...prev, [id]: page.operations }));
-      setOperationPageByExtractorId((prev) => ({ ...prev, [id]: page }));
-    } finally {
-      setLoadingOperationsId(null);
-    }
+    const operations = allOperationRowsByExtractorId[id] || [];
+    setOperationPageByExtractorId((prev) => ({ ...prev, [id]: paginateOperations(operations, pageNumber) }));
   };
 
   return (
-    <div className="space-y-6" id="dashboard-workbench">
+    <>
+      <div className="space-y-6" id="dashboard-workbench">
       {viewMode === "list" && (
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
@@ -376,7 +395,7 @@ export const DashboardSlide: React.FC<DashboardSlideProps> = ({
                     <div className="space-y-2">
                       <div className="flex justify-between items-start">
                         <span className="text-[10px] text-slate-400 font-mono">
-                          {ext.operationCount || ext.extractions.length} Records
+                          {operationCountByExtractorId[ext.id] ?? ext.operationCount ?? ext.extractions.length} Records
                         </span>
                       </div>
                       <div>
@@ -410,7 +429,7 @@ export const DashboardSlide: React.FC<DashboardSlideProps> = ({
                       <div>
                         <h3 className="mt-1 text-xl font-extrabold text-slate-900">{selectedExtractor.name}</h3>
                         <p className="text-slate-500 text-[11px] mt-1">
-                          {selectedExtractor.operationCount || selectedOperationRows.length} current extraction{(selectedExtractor.operationCount || selectedOperationRows.length) === 1 ? "" : "s"}
+                          {(operationCountByExtractorId[selectedExtractor.id] ?? selectedExtractor.operationCount ?? selectedOperationRows.length)} current extraction{(operationCountByExtractorId[selectedExtractor.id] ?? selectedExtractor.operationCount ?? selectedOperationRows.length) === 1 ? "" : "s"}
                         </p>
                       </div>
                       <div className="flex flex-col items-stretch xl:items-end gap-2">
@@ -833,6 +852,8 @@ export const DashboardSlide: React.FC<DashboardSlideProps> = ({
         </div>
       )}
 
-    </div>
+      </div>
+      {newOperationToastTime && <NewOperationToast timeLabel={newOperationToastTime} />}
+    </>
   );
 };

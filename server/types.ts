@@ -1,4 +1,4 @@
-import { EmailMessage, SampleExtractionResult, SchemaField } from "../src/types";
+import { EmailMessage, SampleExtractionResult, SchemaField, SubjectValidationResult, ValidationSample } from "../src/types";
 
 export interface ExtractionRecord {
   id: string;
@@ -18,6 +18,8 @@ export interface ExtractorSubject {
   createdAt: string;
   lastScannedAt?: string;
   scriptCode?: string;
+  validationSample?: ValidationSample;
+  validationResult?: SubjectValidationResult;
 }
 
 export interface ExtractorSubjectScript {

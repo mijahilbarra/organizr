@@ -6,7 +6,7 @@ export function createSchemaEditExpectedPayload(extractor: Extractor) {
     schemaFields: extractor.schemaFields,
     subjectScripts: createSchemaEditCurrentParsers(extractor).map((subject) => ({
       ...subject,
-      validationSample: {
+      validationSample: subject.validationSample || {
         body: "<html>...</html>",
         subject: subject.subject,
         from: "",

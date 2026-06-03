@@ -1,7 +1,6 @@
 import { Request, Response } from "express";
-import { Extractor, ExtractionRecord, ExtractorSubjectScript } from "../../types";
+import { Extractor, ExtractionRecord } from "../../types";
 import { loadRequiredFirebaseUserFromRequest } from "../auth/loadRequiredFirebaseUserFromRequest";
-import { createExtractorSubject } from "./createExtractorSubject";
 import { getUniqueSubjectValues } from "./getUniqueSubjectValues";
 import { saveExtractor } from "./saveExtractor";
 import { createOperationRecord } from "../operations/createOperationRecord";
@@ -10,6 +9,10 @@ import { saveNewOperationsWithComputedFields } from "../computed/saveNewOperatio
 import { normalizeComputedSchemaFields } from "../computed/normalizeComputedSchemaFields";
 import { createExtractorStoredSamples } from "./createExtractorStoredSamples";
 import { createSampleExtractedResults } from "./createSampleExtractedResults";
+import { createValidationSample } from "./createValidationSample";
+import { createValidatedExtractorSubject } from "./createValidatedExtractorSubject";
+import { createExtractorSubject } from "./createExtractorSubject";
+import { syncExtractorSamplesWithSubjects } from "./syncExtractorSamplesWithSubjects";
 
 /**
  * Creates and persists a new email extractor containing layout descriptions,
@@ -37,6 +40,7 @@ export async function createExtractor(req: Request, res: Response) {
   }
 
   try {
+    const normalizedSchemaFields = normalizeComputedSchemaFields(schemaFields);
     const storedSamples = createExtractorStoredSamples(initialEmails, initialResults);
 
     // Create unique ID
@@ -45,16 +49,41 @@ export async function createExtractor(req: Request, res: Response) {
       ...(Array.isArray(subjects) ? subjects : []),
       query,
     ]);
-    const normalizedSubjectScripts: ExtractorSubjectScript[] = subjectScripts
+    const normalizedSubjectScripts = subjectScripts
       .map((entry: any) => ({
         subject: String(entry?.subject || "").trim(),
         scriptCode: String(entry?.scriptCode || "").trim(),
+        validationSample: entry?.validationSample && typeof entry.validationSample === "object"
+          ? entry.validationSample
+          : null,
       }))
       .filter((entry) => entry.subject && entry.scriptCode);
 
     if (normalizedSubjectScripts.length === 0) {
       return res.status(400).json({ error: "At least one subjectScripts pair is required." });
     }
+
+    const validatedSubjects = normalizedSubjectScripts.map((entry) => {
+      const matchingSampleEmail = storedSamples.sampleEmails.find(
+        (sampleEmail) => sampleEmail.subject.trim().toLowerCase() === entry.subject.toLowerCase(),
+      );
+      const validationSample = createValidationSample(entry.validationSample, entry.subject) || (
+        matchingSampleEmail
+          ? createValidationSample(matchingSampleEmail, entry.subject)
+          : null
+      );
+
+      if (!validationSample) {
+        throw new Error(`Subject "${entry.subject}" requires validationSample.body or a matching initial email.`);
+      }
+
+      return createValidatedExtractorSubject({
+        schemaFields: normalizedSchemaFields,
+        subject: entry.subject,
+        scriptCode: entry.scriptCode,
+        validationSample,
+      }).subject;
+    });
 
     // Build initial extractions from results
     const extractions: ExtractionRecord[] = [];
@@ -79,11 +108,16 @@ export async function createExtractor(req: Request, res: Response) {
       name,
       query: subjectValues[0] || query,
       subjects: subjectValues.map((value) => {
-        const scriptPair = normalizedSubjectScripts.find((entry) => entry.subject.toLowerCase() === value.toLowerCase()) || normalizedSubjectScripts[0];
-        return createExtractorSubject(value, scriptPair.scriptCode);
+        const validatedSubject = validatedSubjects.find((entry) => entry.value.toLowerCase() === value.toLowerCase()) || validatedSubjects[0];
+        return createExtractorSubject(
+          value,
+          validatedSubject.scriptCode,
+          validatedSubject.validationSample,
+          validatedSubject.validationResult,
+        );
       }),
       explanation: explanation || "",
-      schemaFields: normalizeComputedSchemaFields(schemaFields),
+      schemaFields: normalizedSchemaFields,
       sampleEmails: storedSamples.sampleEmails,
       sampleExtractedResults: [],
       webhookUrl: webhookUrl || "",
@@ -94,10 +128,9 @@ export async function createExtractor(req: Request, res: Response) {
       createdAt: new Date().toISOString(),
     };
 
-    newExtractor.sampleExtractedResults = createSampleExtractedResults(
-      newExtractor.sampleEmails,
-      newExtractor.subjects,
-    );
+    const syncedSamples = syncExtractorSamplesWithSubjects(newExtractor);
+    newExtractor.sampleEmails = syncedSamples.sampleEmails;
+    newExtractor.sampleExtractedResults = syncedSamples.sampleExtractedResults;
 
     await saveExtractor(newExtractor);
     const savedExtractions = await saveNewOperationsWithComputedFields({

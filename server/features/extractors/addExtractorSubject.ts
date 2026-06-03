@@ -1,16 +1,18 @@
 import { Request, Response } from "express";
 import { loadRequiredFirebaseUserFromRequest } from "../auth/loadRequiredFirebaseUserFromRequest";
 import { createExtractorSubject } from "./createExtractorSubject";
-import { loadExtractorContextById } from "./loadExtractorContextById";
-import { normalizeExtractorSubjects } from "./normalizeExtractorSubjects";
-import { saveExtractor } from "./saveExtractor";
 import { createGptActionResponse } from "../gpt/createGptActionResponse";
+import { createValidationSample } from "./createValidationSample";
+import { createValidatedExtractorSubject } from "./createValidatedExtractorSubject";
+import { loadRequiredNormalizedExtractorForSubjectMutation } from "./loadRequiredNormalizedExtractorForSubjectMutation";
+import { saveExtractorWithSubjectSamples } from "./saveExtractorWithSubjectSamples";
 
 export async function addExtractorSubject(req: Request, res: Response) {
   const { id } = req.params;
   const firebaseUser = loadRequiredFirebaseUserFromRequest(req, res);
   const subject = String(req.body.subject || req.body.value || "").trim();
   const scriptCode = String(req.body.scriptCode || "").trim();
+  const validationSample = createValidationSample(req.body?.validationSample, subject);
 
   if (!firebaseUser) return;
 
@@ -30,18 +32,24 @@ export async function addExtractorSubject(req: Request, res: Response) {
     ));
   }
 
+  if (!validationSample) {
+    return res.status(400).json(createGptActionResponse(
+      "MANUAL_PAYLOAD_REQUIRED",
+      "validationSample.body is required to validate a new subject parser before saving.",
+      { extractorId: id, subject },
+    ));
+  }
+
   try {
-    const extractorContext = await loadExtractorContextById(id, firebaseUser.uid);
-
-    if (!extractorContext) {
-      return res.status(404).json(createGptActionResponse(
-        "EXTRACTOR_NOT_FOUND",
-        "Extractor not found.",
-        { extractorId: id, subject },
-      ));
+    const extractor = await loadRequiredNormalizedExtractorForSubjectMutation(
+      res,
+      id,
+      firebaseUser.uid,
+      { extractorId: id, subject },
+    );
+    if (!extractor) {
+      return;
     }
-
-    const extractor = normalizeExtractorSubjects(extractorContext.extractor);
 
     const alreadyRegistered = extractor.subjects.some(
       (registeredSubject) => registeredSubject.value.toLowerCase() === subject.toLowerCase(),
@@ -55,13 +63,25 @@ export async function addExtractorSubject(req: Request, res: Response) {
       ));
     }
 
-    extractor.subjects.push(createExtractorSubject(subject, scriptCode));
+    const validatedSubject = createValidatedExtractorSubject({
+      schemaFields: extractor.schemaFields,
+      subject,
+      scriptCode,
+      validationSample,
+    }).subject;
+
+    extractor.subjects.push(createExtractorSubject(
+      validatedSubject.value,
+      validatedSubject.scriptCode,
+      validatedSubject.validationSample,
+      validatedSubject.validationResult,
+    ));
 
     if (!extractor.query) {
       extractor.query = extractor.subjects[0]?.value || subject;
     }
 
-    await saveExtractor(extractor);
+    await saveExtractorWithSubjectSamples(extractor);
 
     return res.json(createGptActionResponse("READY", "Subject registered and attached to the extractor.", {
       extractor,

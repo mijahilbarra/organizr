@@ -5,6 +5,7 @@ import { loadUserProfileForRequest } from "../profile/loadUserProfileForRequest"
 import { ensureGptTargetExtractorExists } from "./ensureGptTargetExtractorExists";
 import { createPersistedGptExtractorResponse } from "./createPersistedGptExtractorResponse";
 import { persistGptAnalysisResult } from "./persistGptAnalysisResult";
+import { resolveValidationSampleForGptAnalysis } from "./resolveValidationSampleForGptAnalysis";
 
 export async function createExtractorFromCustomGptAnalysis(req: Request, res: Response) {
   const subject = String(req.body?.subject || "").trim();
@@ -29,7 +30,28 @@ export async function createExtractorFromCustomGptAnalysis(req: Request, res: Re
     }
   }
 
-  const persisted = await persistGptAnalysisResult(req, loaded?.profile?.uid || "", analysis, subject, emails);
+  const validationSample = resolveValidationSampleForGptAnalysis(req.body, subject, emails);
+  if (!validationSample) {
+    return res.status(400).json(createGptActionResponse(
+      "MANUAL_PAYLOAD_REQUIRED",
+      "Provide validationSample.body, or resend the Gmail email samples returned by extractor-from-subject, before persisting Custom GPT analysis.",
+      {
+        capabilities,
+        subject,
+        extractorId,
+        acceptedPayloadShapes: ["validationSample", "emails"],
+      },
+    ));
+  }
+
+  const persisted = await persistGptAnalysisResult(
+    req,
+    loaded?.profile?.uid || "",
+    analysis,
+    subject,
+    emails,
+    validationSample,
+  );
   const response = createPersistedGptExtractorResponse(
     persisted,
     capabilities,

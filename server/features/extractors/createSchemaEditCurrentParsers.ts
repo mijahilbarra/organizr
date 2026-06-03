@@ -5,5 +5,6 @@ export function createSchemaEditCurrentParsers(extractor: Extractor) {
     subjectId: subject.id,
     subject: subject.value,
     scriptCode: subject.scriptCode || "",
+    validationSample: subject.validationSample || null,
   }));
 }

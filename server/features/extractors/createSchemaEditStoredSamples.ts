@@ -1,23 +1,14 @@
 import { EmailMessage, SampleExtractionResult } from "../../../src/types";
 import { Extractor } from "../../types";
+import { createValidationSample } from "./createValidationSample";
+import { createValidationSampleEmail } from "./createValidationSampleEmail";
 
 function createStoredValidationSampleEmail(entry: any, index: number): EmailMessage | null {
-  const validationSample = entry?.validationSample;
-  if (!validationSample || typeof validationSample !== "object") return null;
+  const fallbackSubject = String(entry?.subject ?? entry?.value ?? "").trim();
+  const validationSample = createValidationSample(entry?.validationSample, fallbackSubject);
+  if (!validationSample) return null;
 
-  const body = String(validationSample.body || "");
-  const subject = String(validationSample.subject ?? entry?.subject ?? entry?.value ?? "").trim();
-  if (!body.trim() || !subject) return null;
-
-  return {
-    id: `sample_${Date.now()}_${index}`,
-    threadId: "",
-    subject,
-    from: typeof validationSample.from === "string" ? validationSample.from : "",
-    date: "",
-    snippet: body.slice(0, 200),
-    body,
-  };
+  return createValidationSampleEmail(validationSample, `sample_${Date.now()}_${index}`);
 }
 
 export function createSchemaEditStoredSamples(extractor: Extractor, body: any) {

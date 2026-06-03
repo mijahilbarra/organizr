@@ -34,6 +34,18 @@ export interface SampleExtractionResult {
   extractedData: string; // JSON string of values
 }
 
+export interface ValidationSample {
+  body: string;
+  subject?: string;
+  from?: string;
+}
+
+export interface SubjectValidationResult {
+  emailId: string;
+  extractedData: string;
+  validatedAt: string;
+}
+
 export interface AnalysisResponse {
   explanation: string;
   schemaFields: SchemaField[];
@@ -61,6 +73,8 @@ export interface ExtractorSubject {
   createdAt: string;
   lastScannedAt?: string;
   scriptCode?: string;
+  validationSample?: ValidationSample;
+  validationResult?: SubjectValidationResult;
 }
 
 export interface ExtractorSubjectScript {

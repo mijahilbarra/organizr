@@ -9,10 +9,10 @@ import { createSchemaEditManualPayload } from "./createSchemaEditManualPayload";
 import { createSchemaEditExpectedPayload } from "./createSchemaEditExpectedPayload";
 import { createSchemaEditCurrentParsers } from "./createSchemaEditCurrentParsers";
 import { createSchemaEditCurrentSamples } from "./createSchemaEditCurrentSamples";
-import { createSchemaEditStoredSamples } from "./createSchemaEditStoredSamples";
-import { createSampleExtractedResults } from "./createSampleExtractedResults";
 import { createGptActionResponse } from "../gpt/createGptActionResponse";
-import { validateSchemaAgainstSample } from "./validateSchemaAgainstSample";
+import { createValidationSample } from "./createValidationSample";
+import { createValidatedExtractorSubject } from "./createValidatedExtractorSubject";
+import { syncExtractorSamplesWithSubjects } from "./syncExtractorSamplesWithSubjects";
 
 export async function editExtractorSchema(req: Request, res: Response) {
   const { id } = req.params;
@@ -89,61 +89,45 @@ export async function editExtractorSchema(req: Request, res: Response) {
         throw new Error("Manual schema edits require at least one subject with scriptCode.");
       }
 
+      const validatedSubjects = nextSubjects.map((nextSubject) => {
+        const matchingEntry = subjectEntries.find((entry: any) => {
+          const entryId = String(entry?.subjectId ?? entry?.id ?? "").trim();
+          const entrySubject = String(entry?.subject ?? entry?.value ?? "").trim();
+          return entryId === nextSubject.id || entrySubject.toLowerCase() === nextSubject.value.toLowerCase();
+        });
+        const persistedSubject = currentExtractor.subjects.find((entry) => entry.id === nextSubject.id)
+          || currentExtractor.subjects.find((entry) => entry.value.toLowerCase() === nextSubject.value.toLowerCase());
+        const validationSample = createValidationSample(matchingEntry?.validationSample, nextSubject.value)
+          || createValidationSample(persistedSubject?.validationSample, nextSubject.value)
+          || createValidationSample(nextSubject.validationSample, nextSubject.value);
+
+        if (!validationSample) {
+          addDebugLog(`Rejecting subject parser edit because ${nextSubject.value} is missing validationSample.body.`);
+          throw new Error(`Subject "${nextSubject.value}" requires validationSample.body when updating parser code or schema.`);
+        }
+
+        return createValidatedExtractorSubject({
+          schemaFields: normalizedSchemaFields,
+          subject: nextSubject.value,
+          scriptCode: nextSubject.scriptCode || "",
+          validationSample,
+          subjectId: nextSubject.id,
+          createdAt: nextSubject.createdAt,
+          lastScannedAt: nextSubject.lastScannedAt,
+        }).subject;
+      });
+
       if (hasManualSubjectPayload) {
-        const validationEntry = subjectEntries.find((entry: any) => {
-          const subjectValue = String(entry?.subject ?? entry?.value ?? "").trim();
-          const scriptCode = String(entry?.scriptCode || "").trim();
-          return subjectValue && scriptCode;
-        });
-        const validationSample = validationEntry?.validationSample && typeof validationEntry.validationSample === "object"
-          ? validationEntry.validationSample
-          : null;
-
-        if (!validationSample || typeof validationSample.body !== "string" || !validationSample.body.trim()) {
-          addDebugLog("Rejecting subject parser edit because validationSample.body is required per subject entry.");
-          return res.status(400).json(createGptActionResponse(
-            "MANUAL_PAYLOAD_REQUIRED",
-            "Each subjectScripts/subjects entry must include validationSample.body when updating parser code.",
-            {
-              extractorId: id,
-              debugLogs,
-              mode: "needs_manual_payload",
-            },
-          ));
-        }
-
-        const validationScriptCode = nextSubjects[0]?.scriptCode || "";
-        const validationResult = validateSchemaAgainstSample(normalizedSchemaFields, validationScriptCode, {
-          body: String(validationSample.body || ""),
-          subject: typeof validationSample.subject === "string" ? validationSample.subject : "",
-          from: typeof validationSample.from === "string" ? validationSample.from : "",
-        });
-
-        if (!validationResult.ok) {
-          addDebugLog(`Rejecting schema edit because validation sample did not match schema: ${validationResult.message}`);
-          return res.status(400).json(createGptActionResponse(
-            "MANUAL_PAYLOAD_REQUIRED",
-            validationResult.message || "The parser output did not match the schemaFields.",
-            {
-              extractorId: id,
-              debugLogs,
-              mode: "needs_manual_payload",
-              validationOutput: validationResult.output || null,
-            },
-          ));
-        }
+        addDebugLog(`Validated ${validatedSubjects.length} subject parser(s) against the requested schema.`);
       }
 
       const savedExtractor = await updateExtractorById(id, profile.uid, (extractor) => {
-        const storedSamples = createSchemaEditStoredSamples(extractor, req.body);
         extractor.explanation = manualPayload.explanation || extractor.explanation;
         extractor.schemaFields = normalizedSchemaFields;
-        extractor.subjects = nextSubjects;
-        extractor.sampleEmails = storedSamples.sampleEmails;
-        extractor.sampleExtractedResults = createSampleExtractedResults(
-          storedSamples.sampleEmails,
-          nextSubjects,
-        );
+        extractor.subjects = validatedSubjects;
+        const syncedSamples = syncExtractorSamplesWithSubjects(extractor);
+        extractor.sampleEmails = syncedSamples.sampleEmails;
+        extractor.sampleExtractedResults = syncedSamples.sampleExtractedResults;
       });
 
       if (!savedExtractor) {
@@ -195,6 +179,20 @@ export async function editExtractorSchema(req: Request, res: Response) {
     ));
   } catch (error: any) {
     addDebugLog(`Schema edit failed: ${error.message || "unknown error"}`);
+    if (
+      typeof error?.message === "string"
+      && (
+        error.message.includes("requires validationSample.body")
+        || error.message.includes("Parser output")
+        || error.message.includes("The parser must return")
+      )
+    ) {
+      return res.status(400).json(createGptActionResponse(
+        "MANUAL_PAYLOAD_REQUIRED",
+        error.message,
+        { extractorId: id, debugLogs, mode: "needs_manual_payload" },
+      ));
+    }
     console.error("Extractor schema edit breakdown:", error);
     return res.status(500).json(createGptActionResponse(
       "EXTRACTOR_EDIT_FAILED",

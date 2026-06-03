@@ -279,6 +279,24 @@
                       "type": "object"
                     }
                   },
+                  "validationSample": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "body": {
+                        "type": "string"
+                      },
+                      "subject": {
+                        "type": "string"
+                      },
+                      "from": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "body"
+                    ]
+                  },
                   "analysis": {
                     "type": "object",
                     "additionalProperties": true,
@@ -294,6 +312,24 @@
                       },
                       "scriptCode": {
                         "type": "string"
+                      },
+                      "validationSample": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "body": {
+                            "type": "string"
+                          },
+                          "subject": {
+                            "type": "string"
+                          },
+                          "from": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "body"
+                        ]
                       },
                       "sampleExtractedResults": {
                         "type": "array",
@@ -464,7 +500,7 @@
     "/api/extractors/test-html": {
       "post": {
         "operationId": "testExtractorWithHtml",
-        "description": "Execute an extractor script against raw HTML and return the parser output.",
+        "description": "Execute an extractor script against raw HTML and optionally validate computedStatus for computed schemas.",
         "deprecated": false,
         "requestBody": {
           "required": true,
@@ -485,6 +521,12 @@
                   },
                   "from": {
                     "type": "string"
+                  },
+                  "schemaFields": {
+                    "type": "array",
+                    "items": {
+                      "type": "object"
+                    }
                   }
                 },
                 "required": [

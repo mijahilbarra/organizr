@@ -15,9 +15,9 @@ test("createSchemaEditExpectedPayload returns the second-call contract for agent
     subject: "Alert 1",
     scriptCode: "function extractData(){ return { merchant: 'A' }; }",
     validationSample: {
-      body: "<html>...</html>",
+      body: "<html>alert 1</html>",
       subject: "Alert 1",
-      from: "",
+      from: "bank@example.com",
     },
   });
 });

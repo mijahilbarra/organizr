@@ -1,7 +1,7 @@
-import React, { useCallback, useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { Key, AlertCircle, RefreshCw, PlusCircle, Bug, LogIn } from "lucide-react";
-import { EmailMessage, AnalysisResponse, SchemaField, Extractor, UserProfile, AddExtractorSubjectResponse, ExtractorOperationsPage, ExtractorSchemaEditMessage, ExtractorSchemaEditProvider, LlmProviderPreference } from "./types";
+import { EmailMessage, AnalysisResponse, SchemaField, Extractor, UserProfile, AddExtractorSubjectResponse, ExtractorSchemaEditMessage, ExtractorSchemaEditProvider, LlmProviderPreference } from "./types";
 import { createBackendHeadersForSession } from "./firebase/createBackendHeadersForSession";
 import type { FirebaseAuthSession } from "./firebase/FirebaseAuthSession";
 import { hasFirebaseConfig } from "./firebase/hasFirebaseConfig";
@@ -693,21 +693,6 @@ export default function App() {
     return result;
   };
 
-  const handleLoadExtractorOperations = useCallback(async (id: string, page = 1): Promise<ExtractorOperationsPage> => {
-    const params = new URLSearchParams({ limit: "20", page: String(page) });
-
-    const res = await fetch(`/api/extractors/${id}/operations?${params.toString()}`, {
-      headers: createBackendHeadersForSession(firebaseSession),
-    });
-
-    if (!res.ok) {
-      const errObj = await res.json();
-      throw new Error(errObj.error || "Failed to load extractor operations.");
-    }
-
-    return await res.json() as ExtractorOperationsPage;
-  }, [firebaseSession]);
-
   const handleDeleteExtractor = async (id: string) => {
     const previousExtractors = extractors;
     setExtractors((prev) => prev.filter((extractor) => extractor.id !== id));
@@ -1043,14 +1028,13 @@ export default function App() {
                   viewMode={isExtractorsRoute ? "list" : "detail"}
                   selectedExtractorIdFromRoute={extractorIdRoute}
                   onSelectExtractor={handleOpenExtractorDetail}
-                  onRunScan={handleRunScan}
-                  onToggleSchedule={handleToggleSchedule}
-                  onUpdateWebhook={handleUpdateWebhook}
-                  onAddSubject={handleAddExtractorSubject}
-                  onLoadOperations={handleLoadExtractorOperations}
-                  onDeleteExtractor={handleDeleteExtractor}
-                  onSubmitSchemaEdit={handleSubmitSchemaEdit}
-                  onCreateExtractor={resetExtractorCreation}
+                onRunScan={handleRunScan}
+                onToggleSchedule={handleToggleSchedule}
+                onUpdateWebhook={handleUpdateWebhook}
+                onAddSubject={handleAddExtractorSubject}
+                onDeleteExtractor={handleDeleteExtractor}
+                onSubmitSchemaEdit={handleSubmitSchemaEdit}
+                onCreateExtractor={resetExtractorCreation}
                 />
               )}
 

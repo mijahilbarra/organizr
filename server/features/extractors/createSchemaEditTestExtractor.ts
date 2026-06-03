@@ -12,12 +12,32 @@ export function createSchemaEditTestExtractor(): Extractor {
         value: "Alert 1",
         createdAt: "2026-06-03T00:00:00.000Z",
         scriptCode: "function extractData(){ return { merchant: 'A' }; }",
+        validationSample: {
+          body: "<html>alert 1</html>",
+          subject: "Alert 1",
+          from: "bank@example.com",
+        },
+        validationResult: {
+          emailId: "sample_1",
+          extractedData: "{\"merchant\":\"A\"}",
+          validatedAt: "2026-06-03T00:00:00.000Z",
+        },
       },
       {
         id: "sub_2",
         value: "Alert 2",
         createdAt: "2026-06-03T00:00:00.000Z",
         scriptCode: "function extractData(){ return { merchant: 'B' }; }",
+        validationSample: {
+          body: "<html>alert 2</html>",
+          subject: "Alert 2",
+          from: "bank@example.com",
+        },
+        validationResult: {
+          emailId: "sample_2",
+          extractedData: "{\"merchant\":\"B\"}",
+          validatedAt: "2026-06-03T00:00:00.000Z",
+        },
       },
     ],
     explanation: "desc",
